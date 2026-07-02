@@ -1,0 +1,61 @@
+plugins {
+    id 'java'
+    id 'com.gradleup.shadow' version '8.3.5'
+}
+
+group = 'ru.truhot'
+version = '1.21.4'
+
+def mcVersion = '1.21.4'
+
+dependencies {
+    compileOnly "io.papermc.paper:paper-api:${mcVersion}-R0.1-SNAPSHOT"
+    compileOnly("com.sk89q.worldedit:worldedit-bukkit:7.3.10") {
+        exclude group: 'com.google.guava'
+        exclude group: 'com.google.code.gson'
+        exclude group: 'it.unimi.dsi'
+        exclude group: 'org.apache.logging.log4j'
+        exclude group: 'org.slf4j'
+    }
+    compileOnly("com.sk89q.worldguard:worldguard-bukkit:7.0.12") {
+        exclude group: 'com.google.guava'
+        exclude group: 'com.google.code.gson'
+        exclude group: 'it.unimi.dsi'
+        exclude group: 'org.apache.logging.log4j'
+        exclude group: 'org.slf4j'
+    }
+    compileOnly "net.coreprotect:coreprotect:22.4"
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'papermc-repo'
+        url = 'https://repo.papermc.io/repository/maven-public/'
+    }
+    maven {
+        name = 'sonatype'
+        url = 'https://oss.sonatype.org/content/groups/public/'
+    }
+    maven {
+        name = 'enginehub'
+        url = 'https://maven.enginehub.org/repo/'
+    }
+    maven {
+        name = 'playpro'
+        url = 'https://maven.playpro.com'
+    }
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+shadowJar {
+    archiveClassifier.set('')
+    minimize()
+}
+
+tasks.build.dependsOn tasks.shadowJar

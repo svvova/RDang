@@ -1,0 +1,27 @@
+spawn:
+  minx: -2000
+  maxx: 2000
+  minz: -2000
+  maxz: 2000
+
+dang:
+  1:
+    fileName: FantasticSmallMoon_Allify.schem
+    biome: the_end;end_highlands;end_midlands;end_barrens;small_end_islands
+    world: world
+  2:
+    fileName: FantasySpawn_Allify.schem
+    biome: plains;sunflower_plains;savanna;birch_forest;dark_forest;flower_forest;cherry_grove
+    world: world
+  3:
+    fileName: fantasy-tower.schem
+    biome: plains;sunflower_plains;savanna;birch_forest;dark_forest;flower_forest;cherry_grove
+    world: world
+  4:
+    fileName: FarmHouse_Allify_litematic.schem
+    biome: plains;sunflower_plains;savanna
+    world: world
+  5:
+    fileName: anvilstead.schem
+    biome: desert;badlands;eroded_badlands;wooded_badlands
+    world: world
