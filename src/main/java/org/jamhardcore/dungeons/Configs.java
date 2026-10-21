@@ -242,6 +242,7 @@ public final class Configs {
             Model.Theme t = new Model.Theme();
             t.id = key;
             t.name = y.getString("themes." + key + ".name", key);
+            t.biomes = y.getStringList("themes." + key + ".biomes");
             List<String> allowed = ThemeCatalog.allowed(key);
             t.mobs = new LinkedHashMap<String, Model.MobSpec>();
             for (Map.Entry preset : presets.entrySet()) {
@@ -300,6 +301,9 @@ public final class Configs {
                 }
                 if (arena.worlds == null) {
                     arena.worlds = new ArrayList<String>();
+                }
+                if (arena.biomes == null) {
+                    arena.biomes = new ArrayList<String>();
                 }
                 if (arena.name == null) {
                     arena.name = id;
@@ -481,6 +485,27 @@ public final class Configs {
             this.install(previous);
             throw new IllegalArgumentException(e.getMessage(), e);
         }
+    }
+
+    public List<String> themeBiomes(String theme) {
+        if (theme == null) return List.of();
+        Model.Theme t = this.themes.get(theme);
+        if (t != null && t.biomes != null && !t.biomes.isEmpty()) {
+            return t.biomes;
+        }
+        List<String> list = this.main().getStringList("random-placement.theme-biomes." + theme);
+        if (!list.isEmpty()) {
+            return list;
+        }
+        return switch (theme.toLowerCase(Locale.ROOT)) {
+            case "forest" -> List.of("FOREST", "BIRCH_FOREST", "DARK_FOREST", "FLOWER_FOREST", "CHERRY_GROVE", "OLD_GROWTH_BIRCH_FOREST", "TAIGA", "GROVE");
+            case "desert" -> List.of("DESERT", "BADLANDS", "ERODED_BADLANDS", "WOODED_BADLANDS");
+            case "mining" -> List.of("PLAINS", "SUNFLOWER_PLAINS", "SAVANNA", "STONY_PEAKS", "WINDSWEPT_HILLS", "MEADOW");
+            case "flying" -> List.of("PLAINS", "SUNFLOWER_PLAINS", "MEADOW", "WINDSWEPT_HILLS", "SAVANNA", "JAGGED_PEAKS");
+            case "water" -> List.of("OCEAN", "DEEP_OCEAN", "WARM_OCEAN", "LUKEWARM_OCEAN", "COLD_OCEAN", "DEEP_LUKEWARM_OCEAN", "DEEP_COLD_OCEAN");
+            case "raiders" -> List.of("PLAINS", "SUNFLOWER_PLAINS", "SAVANNA", "FOREST", "BIRCH_FOREST", "MEADOW");
+            default -> List.of();
+        };
     }
 
     public void saveArena(Model.Arena arena) {

@@ -132,6 +132,26 @@ implements AutoCloseable {
                 this.retry(arena, test, actor, result, n, "\u0433\u0440\u0430\u043d\u0438\u0446\u0430 \u043c\u0438\u0440\u0430");
                 return;
             }
+            List<String> allowedBiomes = arena.biomes.isEmpty() ? this.engine.c.themeBiomes(arena.theme) : arena.biomes;
+            if (!allowedBiomes.isEmpty()) {
+                String currentBiome;
+                try {
+                    currentBiome = world.getBiome(x, 64, z).getKey().getKey();
+                } catch (Throwable t) {
+                    currentBiome = world.getBiome(x, 64, z).toString();
+                }
+                boolean matches = false;
+                for (String allowed : allowedBiomes) {
+                    if (allowed.equalsIgnoreCase(currentBiome) || allowed.replace("_", "").equalsIgnoreCase(currentBiome.replace("_", ""))) {
+                        matches = true;
+                        break;
+                    }
+                }
+                if (!matches) {
+                    this.retry(arena, test, actor, result, n, "\u043d\u0435\u043f\u043e\u0434\u0445\u043e\u0434\u044f\u0449\u0438\u0439 \u0431\u0438\u043e\u043c " + currentBiome);
+                    return;
+                }
+            }
             double playerDistance = this.engine.c.main().getDouble("random-placement.player-distance", 128.0);
             for (Player player : world.getPlayers()) {
                 if (!(Math.hypot(player.getX() - (double)x, player.getZ() - (double)z) < playerDistance + (double)Math.max(width, length))) continue;
@@ -157,8 +177,30 @@ implements AutoCloseable {
                             throw new IllegalStateException("\u043e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0447\u0430\u043d\u043a\u043e\u0432", (Throwable)error);
                         }
                         Model.Point anchor = this.candidate(arena, world, x, z);
-                        Model.Session session = this.engine.spawnAt(arena.id, null, test, actor, anchor);
-                        result.complete(session);
+                        Model.Arena shifted = arena.at(anchor);
+
+                        if (this.engine.coreProtect != null && this.engine.coreProtect.isAvailable()) {
+                            List<Block> samples = this.engine.coreProtect.collectSampleBlocks(world, shifted.box());
+                            this.engine.coreProtect.hasPlayerBuildsAsync(samples).whenComplete((hasBuilds, cpErr) -> {
+                                if (this.closed) return;
+                                Bukkit.getScheduler().runTask((Plugin)this.plugin, () -> {
+                                    if (this.closed || result.isDone()) return;
+                                    if (Boolean.TRUE.equals(hasBuilds)) {
+                                        this.retry(arena, test, actor, result, n, "\u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0433\u0440\u043e\u043a\u043e\u0432 (CoreProtect)");
+                                        return;
+                                    }
+                                    try {
+                                        Model.Session session = this.engine.spawnAt(arena.id, null, test, actor, anchor);
+                                        result.complete(session);
+                                    } catch (Exception ex) {
+                                        this.fail(arena, result, ex);
+                                    }
+                                });
+                            });
+                        } else {
+                            Model.Session session = this.engine.spawnAt(arena.id, null, test, actor, anchor);
+                            result.complete(session);
+                        }
                     }
                     catch (Rejected ex) {
                         this.retry(arena, test, actor, result, n, ex.getMessage());
@@ -201,7 +243,7 @@ implements AutoCloseable {
         int samples = 0;
         for (int dx : PlacementService.axisSamples(width)) {
             for (int dz : PlacementService.axisSamples(length)) {
-                int y2 = world.getHighestBlockYAt(x + dx, z + dz, HeightMap.MOTION_BLOCKING_NO_LEAVES);
+                int y2 = PlacementService.getGroundHeight(world, x + dx, z + dz);
                 Block ground = world.getBlockAt(x + dx, y2, z + dz);
                 low = Math.min(low, y2);
                 high = Math.max(high, y2);
@@ -265,22 +307,35 @@ implements AutoCloseable {
             throw new Rejected("\u0437\u0430\u043d\u044f\u0442\u043e \u043f\u0440\u0438\u0432\u0430\u0442\u043e\u043c");
         }
         for (Model.Session s : this.engine.sessions.values()) {
-            if (!protectedBox.intersects(this.engine.c.protectionBox(s.arena))) continue;
-            throw new Rejected("\u043f\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043d\u0438\u0435 \u0434\u0430\u043d\u0436\u0435\u0439");
+            if (s.arena == null || s.arena.pos1 == null) continue;
+            if (!s.arena.pos1.world().equalsIgnoreCase(world.getName())) continue;
+            Model.Box activeBox = this.engine.c.protectionBox(s.arena);
+            if (protectedBox.intersects(activeBox)) {
+                throw new Rejected("\u043f\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043d\u0438\u0435 \u0434\u0430\u043d\u0436\u0435\u0439");
+            }
+            int minDistance = this.engine.c.main().getInt("random-placement.min-distance-between-dungeons", 300);
+            double activeCenterX = (activeBox.x1() + activeBox.x2()) / 2.0;
+            double activeCenterZ = (activeBox.z1() + activeBox.z2()) / 2.0;
+            double candCenterX = (protectedBox.x1() + protectedBox.x2()) / 2.0;
+            double candCenterZ = (protectedBox.z1() + protectedBox.z2()) / 2.0;
+            if (Math.hypot(candCenterX - activeCenterX, candCenterZ - activeCenterZ) < (double)minDistance) {
+                throw new Rejected("\u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0431\u043b\u0438\u0437\u043a\u043e \u043a \u0434\u0440\u0443\u0433\u043e\u043c\u0443 \u0430\u043a\u0442\u0438\u0432\u043d\u043e\u043c\u0443 \u0434\u0430\u043d\u0436\u0443 (" + s.arena.id + ")");
+            }
         }
         for (Model.Arena source : this.engine.c.arenas.values()) {
             if (source.pos1 == null || source.pos2 == null || !source.pos1.world().equals(source.pos2.world()) || !protectedBox.intersects(this.engine.c.protectionBox(source))) continue;
             throw new Rejected("\u043f\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043d\u0438\u0435 \u0438\u0441\u0445\u043e\u0434\u043d\u043e\u0439 \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438 " + source.id);
         }
-        for (int bx = box.x1(); bx <= box.x2(); ++bx) {
-            for (int bz = box.z1(); bz <= box.z2(); ++bz) {
-                for (int by = box.y1(); by <= box.y2(); ++by) {
+        int checkStep = Math.max(2, this.engine.c.main().getInt("random-placement.check-step", 3));
+        for (int bx = box.x1(); bx <= box.x2(); bx += checkStep) {
+            for (int bz = box.z1(); bz <= box.z2(); bz += checkStep) {
+                for (int by = box.y1(); by <= box.y2(); by += checkStep) {
                     Material material = world.getBlockAt(bx, by, bz).getType();
                     if (a.placement == Model.Placement.AIR && !material.isAir()) {
                         throw new Rejected("\u0432\u043e\u0437\u0434\u0443\u0448\u043d\u044b\u0439 \u043e\u0431\u044a\u0451\u043c \u0437\u0430\u043d\u044f\u0442");
                     }
                     if (PlacementService.natural(material)) continue;
-                    throw new Rejected("\u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d\u044b \u0431\u043b\u043e\u043a\u0438 \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438");
+                    throw new Rejected("\u043e\u0431\u043d\u0430\u0440\u0443\u0436\u0435\u043d\u044b \u0431\u043b\u043e\u043a\u0438 \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438 (" + material.name() + ")");
                 }
             }
         }
@@ -313,8 +368,8 @@ implements AutoCloseable {
             for (int[] offset : new int[][]{{box.x2() + distance, box.z1()}, {box.x1() - distance, box.z1()}, {box.x1(), box.z2() + distance}, {box.x1(), box.z1() - distance}}) {
                 int x = offset[0];
                 int z = offset[1];
-                int y = world.getHighestBlockYAt(x, z, HeightMap.MOTION_BLOCKING_NO_LEAVES) + 1;
-                if (y >= world.getMaxHeight() - 1) continue;
+                int y = PlacementService.getGroundHeight(world, x, z) + 1;
+                if (y >= world.getMaxHeight() - 1 || y <= world.getMinHeight()) continue;
                 Location l = new Location(world, (double)x + 0.5, (double)y, (double)z + 0.5);
                 Material floor = l.clone().add(0.0, -1.0, 0.0).getBlock().getType();
                 if (!world.getWorldBorder().isInside(l) || !floor.isSolid() || Set.of(Material.MAGMA_BLOCK, Material.CAMPFIRE, Material.SOUL_CAMPFIRE, Material.CACTUS).contains(floor) || !l.getBlock().isPassable() || l.getBlock().isLiquid() || !l.clone().add(0.0, 1.0, 0.0).getBlock().isPassable() || box.contains(l)) continue;
@@ -322,6 +377,35 @@ implements AutoCloseable {
             }
         }
         return null;
+    }
+
+    public static int getGroundHeight(World world, int x, int z) {
+        if (world.getEnvironment() == World.Environment.NETHER) {
+            int minY = Math.max(32, world.getMinHeight());
+            int maxY = Math.min(115, world.getMaxHeight());
+            for (int y = maxY; y >= minY; --y) {
+                Block b = world.getBlockAt(x, y, z);
+                Block above1 = world.getBlockAt(x, y + 1, z);
+                Block above2 = world.getBlockAt(x, y + 2, z);
+                if (b.getType().isSolid() && natural(b.getType()) && above1.isPassable() && !above1.isLiquid() && above2.isPassable() && !above2.isLiquid()) {
+                    return y;
+                }
+            }
+            return 64;
+        }
+        if (world.getEnvironment() == World.Environment.THE_END) {
+            int minY = Math.max(40, world.getMinHeight());
+            int maxY = Math.min(80, world.getMaxHeight());
+            for (int y = maxY; y >= minY; --y) {
+                Block b = world.getBlockAt(x, y, z);
+                Block above = world.getBlockAt(x, y + 1, z);
+                if (b.getType().isSolid() && above.isPassable() && !above.isLiquid()) {
+                    return y;
+                }
+            }
+            return 60;
+        }
+        return world.getHighestBlockYAt(x, z, HeightMap.MOTION_BLOCKING_NO_LEAVES);
     }
 
     @Override

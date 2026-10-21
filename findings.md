@@ -1,35 +1,20 @@
-# Technical Findings & Analysis
+# Architectural & Technical Findings
 
-## JamDungeons-1.1.9 Jar Decompilation Analysis
-- Jar location: `E:\Downloads\JamDungeons-1.1.9.jar` (~1,011,150 bytes).
-- Contains:
-  - 28 Java source classes under package `org.jamhardcore.dungeons` (and `org.jamhardcore.dungeons.api`).
-  - Embedded MariaDB JDBC driver 3.5.3 (`org.mariadb.jdbc`).
-  - Resources: `plugin.yml`, `config.yml`, `arenas.yml`, `messages.yml`, `rewards.yml`, `themes.yml`, and `migrations/` directory.
-  - Dependencies originally targeted Paper API, WorldEdit/FAWE, WorldGuard, Vault, PlaceholderAPI, PhoenixCrates.
+## 1. CoreProtect Main Thread vs Async Threading
+- **Finding:** In Bukkit/Paper, calling `world.getBlockAt(...)` or `world.getHighestBlockYAt(...)` from an asynchronous thread causes thread-safety exceptions or corrupts chunk access. However, `CoreProtectAPI.blockLookup(...)` performs SQL queries against the CoreProtect SQLite or MySQL database, which must NOT run on the main thread because database latency causes server tick stalls.
+- **Solution:** Hybrid execution implemented in `CoreProtectHook`:
+  1. Main thread collects sample block references via `collectSampleBlocks` (surface grid and interior checkpoints).
+  2. Asynchronous thread queries CoreProtect database via `hasPlayerBuildsAsync` (`CompletableFuture`).
+  3. Result callback returns to the main thread via `Bukkit.getScheduler().runTask(...)` to proceed with dungeon spawning or retry another candidate.
 
-## Decompilation Nuances
-- CFR decompiler succeeded on all 28 classes.
-- One minor CFR decompilation artifact found in `WorldGuardRegions.java`:
-  - `ArrayList<CallSite> failures = new ArrayList<CallSite>();`
-  - Needs to be standard `List<String> failures = new ArrayList<>();`.
-- Class `Store.java` uses `MariaDbPoolDataSource` and handles MariaDB connection pooling and table schemas (`sessions`, `rewards`, `outcomes`, `audit`, `jobs`, `vouchers`, `pending_returns`).
+## 2. 3D Bounding Box Scanning & Server Lag
+- **Finding:** The original JamDungeons code in `candidate(...)` iterated over every single block $(x_1 \dots x_2, y_1 \dots y_2, z_1 \dots z_2)$ in the 3D box synchronously on the server tick. For a medium-sized 30x20x30 dungeon, this performed 18,000 block reads per candidate; across 64 placement attempts, up to 1.15 million block queries could run synchronously, causing massive TPS drops.
+- **Solution:** Implemented stepped scanning (`check-step: 3`, reducing block accesses by ~96%) combined with async chunk loading. Player structures (which are multi-block structures) are easily detected by stepped sampling and historical CoreProtect logs without impacting TPS.
 
-## RDang Spawning & CoreProtect Mechanics Analysis
-- `RDang` checked player builds using `CoreProtectAPI`:
-  - `collectSurfaceBlocks(Location center, int radiusX, int radiusZ)` on the main thread (uses `getHighestBlockYAt` and `getBlockAt`).
-  - Step of 5 blocks, maximum 64 sample blocks.
-  - `hasPlayerBuilds(List<Block> blocks)` runs asynchronously: calls `api.blockLookup(block, 0)`, checks `parse.getActionId() == 1` (placed block).
-  - If player placed blocks are found in candidate area, spawning is aborted and another location is chosen.
-- Height detection in RDang (`SpawnManager.java`):
-  - Nether: scans upward from `minY` for solid floor with air above.
-  - The End: scans downward for end stone / obsidian with air above.
-  - Surface: scans downward for solid ground with air above.
-- WorldBorder clamping:
-  - `getBorderClampedRange(World world)` calculates min/max bounds based on `world.getWorldBorder()`.
+## 3. Dimensional Terrain & Height Detection
+- **Finding:** In the Nether, `world.getHighestBlockYAt(...)` returns the topmost bedrock roof block (Y=127 or 255), causing dungeons to spawn on top of the bedrock ceiling. In the End, height maps can return void boundaries.
+- **Solution:** `PlacementService.getGroundHeight` scans downwards from below the Nether ceiling (Y=115 down to Y=32) for solid ground with passable air space above. For The End, it scans between Y=80 and Y=40 for End stone or obsidian surfaces.
 
-## Target Architecture Synthesis
-- Maintain the JamDungeons structure as the primary framework.
-- Integrate `CoreProtectHook` into `PlacementService`.
-- Enrich `PlacementService.candidate(...)` with multi-environment height selection (Overworld, Nether, End, Water, Air), biome verification, and non-blocking asynchronous CoreProtect lookups.
-- Maintain WorldGuard region lifecycle: creating on spawn with comprehensive flags and safely removing on despawn/finish/stop.
+## 4. WorldGuard 7 Version Compatibility
+- **Finding:** Different builds of WorldGuard 7 have slight differences in available StateFlags and RemovalStrategy enums. Hardcoded reflection invocations caused `NoSuchFieldException` or `IllegalArgumentException` on older or newer builds.
+- **Solution:** Individual flag setters in `WorldGuardRegions.set(...)` are wrapped in exception guards, and `remove(...)` checks whether the region actually exists before removing, preventing failed deletion states during dungeon rollback.

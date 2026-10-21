@@ -75,6 +75,7 @@ public final class Engine {
     public final Spawner mobs;
     public final Templates structures;
     public final WorldGuardRegions regions;
+    public final CoreProtectHook coreProtect;
     public final PlacementService placement;
     final Combat combat;
     BiConsumer<Model.Session, Integer> spawnWave;
@@ -83,7 +84,7 @@ public final class Engine {
         this.p.getLogger().log(Level.SEVERE, message, error);
     }
 
-    public Engine(JavaPlugin p, Configs c, Store db, Messages msg, Integrations h, Rewards r, Spawner m, Templates t) {
+    public Engine(JavaPlugin p, Configs c, Store db, Messages msg, Integrations h, Rewards r, Spawner m, Templates t, CoreProtectHook cp) {
         this.p = p;
         this.c = c;
         this.db = db;
@@ -92,6 +93,7 @@ public final class Engine {
         this.rewards = r;
         this.mobs = m;
         this.structures = t;
+        this.coreProtect = cp;
         this.regions = new WorldGuardRegions(c);
         this.placement = new PlacementService(p, this);
         this.combat = new Combat(p, this);

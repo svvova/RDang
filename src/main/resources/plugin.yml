@@ -1,14 +1,14 @@
 name: JamDungeons
 version: 1.1.9
 main: org.jamhardcore.dungeons.JamDungeons
-api-version: '26.3'
+api-version: '1.21'
 authors: [JamHardcore]
 description: Six PvE dungeon themes, shared PvP events and in-game administration
-softdepend: [Vault, PlaceholderAPI, PhoenixCrates, JamCore, WorldGuard, WorldEdit, FastAsyncWorldEdit]
+softdepend: [Vault, PlaceholderAPI, PhoenixCrates, JamCore, WorldGuard, WorldEdit, FastAsyncWorldEdit, CoreProtect]
 commands:
   jamdungeons:
-    aliases: [jd, dungeons]
-    description: Данжи и панель администратора Jam Hardcore
+    aliases: [jd, dungeons, rdang, rd, dang]
+    description: Данжи и панель администратора Jam Hardcore / RDang
     usage: /jd help
 permissions:
   jamdungeons.play:
@@ -19,4 +19,8 @@ permissions:
     default: op
   jamdungeons.bypass:
     description: Обход PvE-региона только в creative и spectator
+    default: op
+  rdang.admin:
+    default: op
+  rdang.autospawn:
     default: op

@@ -40,6 +40,8 @@ integrations:
     resource: ''
 scheduling:
   enabled: false
+  # Интервальный авто-спавн (в минутах). 0 = выключен. Например: 60 = спавнить данж раз в час.
+  interval-minutes: 0
   pve-per-day: 2
   pve-window-start: '10:00'
   pve-window-end: '23:00'
@@ -72,20 +74,43 @@ database:
 worldguard:
   enabled: true
   priority: 100
+
+coreprotect:
+  # Проверка построек игроков перед спавном (по образцу RDang)
+  enabled: true
+  # Шаг проверки контрольных точек поверхности (в блоках)
+  sample-step: 4
+  # Максимальное количество контрольных точек на одну попытку
+  max-samples: 64
+  # Сканировать внутреннее пространство данжа на предмет поставленных блоков
+  check-interior: true
+
 random-placement:
   worlds: []
   excluded-worlds: [build, build_world]
   min-radius: 500
   max-radius: 10000
   spawn-distance: 256
+  # Минимальное расстояние между несколькими одновременно активными данжами
+  min-distance-between-dungeons: 300
   player-distance: 128
   attempts: 64
+  # Шаг проверки блоков в кубоиде (3 = быстрая проверка без лагов)
+  check-step: 3
   max-ground-slope: 4
   min-ground-coverage: 0.80
   air-min-height: 24
   air-max-height: 48
   # WATER: на сколько блоков основание корабля погружается под поверхность воды.
   water-submerge-blocks: 2
+
+theme-biomes:
+  mining: [PLAINS, FOREST, DARK_FOREST, BIRCH_FOREST, TAIGA, MEADOW, WINDSWEPT_HILLS, STONY_PEAKS]
+  forest: [FOREST, DARK_FOREST, BIRCH_FOREST, OLD_GROWTH_BIRCH_FOREST, TAIGA, OLD_GROWTH_PINE_TAIGA, JUNGLE, BAMBOO_JUNGLE, SWAMP]
+  flying: []
+  desert: [DESERT, BADLANDS, ERODED_BADLANDS, WOODED_BADLANDS, SAVANNA, SAVANNA_PLATEAU]
+  water: [OCEAN, DEEP_OCEAN, WARM_OCEAN, LUKEWARM_OCEAN, COLD_OCEAN, DEEP_COLD_OCEAN, DEEP_LUKEWARM_OCEAN, FROZEN_OCEAN, RIVER]
+  raiders: [PLAINS, SUNFLOWER_PLAINS, MEADOW, SAVANNA, FOREST, BIRCH_FOREST]
 schematics:
   # Запас привата с каждой из шести сторон схематики. A/B остаются точным размером файла.
   protection-padding: 4

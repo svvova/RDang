@@ -152,6 +152,7 @@ public final class Model {
     public static final class Theme {
         public String id;
         public String name;
+        public List<String> biomes = new ArrayList<String>();
         public List<Map<String, Integer>> waves = new ArrayList<Map<String, Integer>>();
         public Map<String, MobSpec> mobs = new LinkedHashMap<String, MobSpec>();
     }
@@ -180,6 +181,7 @@ public final class Model {
         public String schematic;
         public Placement placement = Placement.GROUND;
         public List<String> worlds = new ArrayList<String>();
+        public List<String> biomes = new ArrayList<String>();
 
         public Box box() {
             return Box.of(this.pos1, this.pos2);

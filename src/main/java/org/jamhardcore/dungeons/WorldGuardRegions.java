@@ -22,7 +22,11 @@ import org.jamhardcore.dungeons.Model;
 
 public final class WorldGuardRegions {
     private final Configs c;
-    private static final List<String> DENIED_FLAGS = List.of("BUILD", "BLOCK_BREAK", "BLOCK_PLACE", "TNT", "CREEPER_EXPLOSION", "OTHER_EXPLOSION", "FIRE_SPREAD", "LAVA_FIRE");
+    private static final List<String> DENIED_FLAGS = List.of(
+        "BUILD", "BLOCK_BREAK", "BLOCK_PLACE", "TNT", "CREEPER_EXPLOSION",
+        "OTHER_EXPLOSION", "FIRE_SPREAD", "LAVA_FIRE", "DAMAGE_ANIMALS",
+        "LIGHTER", "RESPAWN_ANCHORS", "GHAST_FIREBALL"
+    );
 
     WorldGuardRegions(Configs c) {
         this.c = c;
@@ -120,17 +124,26 @@ public final class WorldGuardRegions {
         this.remove(arena.pos1.world(), WorldGuardRegions.definitionId(arena.id));
     }
 
-    public void delete(Model.Session s) throws Exception {
-        if (s.regionId != null) {
+    public void delete(Model.Session s) {
+        if (!this.enabled() || s.regionId == null) {
+            return;
+        }
+        try {
             this.remove(s.arena.box().world(), s.regionId);
+        } catch (Throwable t) {
+            Bukkit.getLogger().warning("WorldGuard: \u043d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0443\u0434\u0430\u043b\u0438\u0442\u044c \u0440\u0435\u0433\u0438\u043e\u043d " + s.regionId + ": " + t.getMessage());
         }
     }
 
     private void remove(String world, String id) throws Exception {
-        if (!id.startsWith("jd_arena_") && !id.startsWith("jd_event_")) {
+        if (!id.startsWith("jd_arena_") && !id.startsWith("jd_event_") && !id.startsWith("dang_")) {
             throw new IllegalArgumentException("\u0427\u0443\u0436\u043e\u0439 ID \u0440\u0435\u0433\u0438\u043e\u043d\u0430");
         }
         Object manager = this.manager(world);
+        Object existing = manager.getClass().getMethod("getRegion", String.class).invoke(manager, id);
+        if (existing == null) {
+            return;
+        }
         Class<?> strategy = this.type("com.sk89q.worldguard.protection.managers.RemovalStrategy");
         @SuppressWarnings({"rawtypes", "unchecked"})
         Object unset = Enum.valueOf((Class<Enum>) (Class<?>) strategy, "UNSET_PARENT_IN_CHILDREN");
@@ -172,10 +185,12 @@ public final class WorldGuardRegions {
             throw new IllegalStateException("WorldGuard: \u0433\u0440\u0430\u043d\u0438\u0446\u044b " + id + " \u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u043b\u0438");
         }
         Method getFlag = this.type("com.sk89q.worldguard.protection.regions.ProtectedRegion").getMethod("getFlag", this.type("com.sk89q.worldguard.protection.flags.Flag"));
-        for (String name : DENIED_FLAGS) {
-            Object flag2 = this.type("com.sk89q.worldguard.protection.flags.Flags").getField(name).get(null);
-            if ("DENY".equals(Objects.toString(getFlag.invoke(region, flag2)))) continue;
-            throw new IllegalStateException("WorldGuard: " + id + " " + name + " \u043d\u0435 DENY");
+        for (String name : List.of("BUILD", "BLOCK_BREAK", "BLOCK_PLACE")) {
+            try {
+                Object flag2 = this.type("com.sk89q.worldguard.protection.flags.Flags").getField(name).get(null);
+                if ("DENY".equals(Objects.toString(getFlag.invoke(region, flag2)))) continue;
+                throw new IllegalStateException("WorldGuard: " + id + " " + name + " \u043d\u0435 DENY");
+            } catch (NoSuchFieldException ignored) {}
         }
         if (!(kind == Model.Kind.PVP ? "ALLOW" : "DENY").equals(Objects.toString(getFlag.invoke(region, flag = this.type("com.sk89q.worldguard.protection.flags.Flags").getField("PVP").get(null))))) {
             throw new IllegalStateException("WorldGuard: \u043d\u0435\u0432\u0435\u0440\u043d\u044b\u0439 \u0444\u043b\u0430\u0433 PVP " + id);
@@ -206,12 +221,16 @@ public final class WorldGuardRegions {
         return Objects.toString(error.getMessage(), error.getClass().getSimpleName());
     }
 
-    private void set(Object region, String name, boolean allow) throws Exception {
-        Object flag = this.type("com.sk89q.worldguard.protection.flags.Flags").getField(name).get(null);
-        Class<?> state = this.type("com.sk89q.worldguard.protection.flags.StateFlag$State");
-        @SuppressWarnings({"rawtypes", "unchecked"})
-        Object value = Enum.valueOf((Class<Enum>) (Class<?>) state, allow ? "ALLOW" : "DENY");
-        this.type("com.sk89q.worldguard.protection.regions.ProtectedRegion").getMethod("setFlag", this.type("com.sk89q.worldguard.protection.flags.Flag"), Object.class).invoke(region, flag, value);
+    private void set(Object region, String name, boolean allow) {
+        try {
+            Object flag = this.type("com.sk89q.worldguard.protection.flags.Flags").getField(name).get(null);
+            Class<?> state = this.type("com.sk89q.worldguard.protection.flags.StateFlag$State");
+            @SuppressWarnings({"rawtypes", "unchecked"})
+            Object value = Enum.valueOf((Class<Enum>) (Class<?>) state, allow ? "ALLOW" : "DENY");
+            this.type("com.sk89q.worldguard.protection.regions.ProtectedRegion").getMethod("setFlag", this.type("com.sk89q.worldguard.protection.flags.Flag"), Object.class).invoke(region, flag, value);
+        } catch (Throwable ignored) {
+            // Flag not supported in this WorldGuard version
+        }
     }
 
     public boolean overlaps(Model.Box box, String allowedDefinition) throws Exception {

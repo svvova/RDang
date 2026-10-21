@@ -24,6 +24,7 @@ public final class EventSchedule {
     private final Engine e;
     private final JavaPlugin p;
     private long next;
+    private long nextIntervalSpawn;
 
     public EventSchedule(JavaPlugin p, Engine e) {
         this.p = p;
@@ -49,6 +50,19 @@ public final class EventSchedule {
 
     public void tick() {
         long now = System.currentTimeMillis();
+
+        // 1. Интервальный авто-спавн данжей
+        int intervalMinutes = this.e.c.main().getInt("scheduling.interval-minutes", 0);
+        if (intervalMinutes > 0) {
+            if (this.nextIntervalSpawn == 0L) {
+                this.nextIntervalSpawn = now + (long)intervalMinutes * 60_000L;
+            } else if (now >= this.nextIntervalSpawn) {
+                this.nextIntervalSpawn = now + (long)intervalMinutes * 60_000L;
+                this.triggerIntervalSpawn();
+            }
+        }
+
+        // 2. Расписание по календарным окнам
         if (now < this.next || !this.e.c.main().getBoolean("scheduling.enabled")) {
             return;
         }
@@ -69,6 +83,30 @@ public final class EventSchedule {
             Collections.shuffle(choices);
             this.scheduleAttempt(choices, 0, job, "\u043d\u0435\u0442 \u0433\u043e\u0442\u043e\u0432\u044b\u0445 \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u0445 \u0430\u0440\u0435\u043d");
         }
+    }
+
+    private void triggerIntervalSpawn() {
+        if (this.e.sessions.size() >= this.e.c.limit("placed-events")) {
+            this.p.getLogger().info("Автоспавн: лимит активных данжей (" + this.e.c.limit("placed-events") + ") достигнут, пропуск.");
+            return;
+        }
+        List<Model.Arena> choices = new ArrayList<>(this.e.c.arenas.values().stream()
+                .filter(a -> a.enabled && !this.e.sessions.containsKey(a.id))
+                .toList());
+        if (choices.isEmpty()) {
+            this.p.getLogger().warning("Автоспавн: нет свободных включенных арен.");
+            return;
+        }
+        Collections.shuffle(choices);
+        Model.Arena target = choices.get(0);
+        this.p.getLogger().info("Автоспавн: запуск поиска места для данжа " + target.id + "...");
+        this.e.placement.spawn(target.id, null, false, "AUTO_SPAWNER").whenComplete((session, err) -> {
+            if (err != null) {
+                this.p.getLogger().warning("Автоспавн: ошибка размещения " + target.id + ": " + err.getMessage());
+            } else {
+                this.p.getLogger().info("Автоспавн: успешно заспавнен данж " + target.id + " (" + session.id + ")");
+            }
+        });
     }
 
     private void scheduleAttempt(List<Model.Arena> choices, int index, Store.Job job, String last) {

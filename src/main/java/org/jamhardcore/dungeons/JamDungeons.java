@@ -55,10 +55,12 @@ extends JavaPlugin {
             this.db = this.createStore(c);
             Messages msg = new Messages(c);
             Integrations hooks = new Integrations(c);
+            CoreProtectHook coreProtect = new CoreProtectHook(this, c);
+            coreProtect.init();
             Rewards rewards = new Rewards(this, c, this.db, hooks, msg);
             Spawner mobs = new Spawner(this, c);
             Templates templates = new Templates(this, c);
-            this.engine = new Engine(this, c, this.db, msg, hooks, rewards, mobs, templates);
+            this.engine = new Engine(this, c, this.db, msg, hooks, rewards, mobs, templates, coreProtect);
             this.ui = new AdminUI(this, this.engine);
             Commands commands = new Commands(this.engine, this.ui);
             this.ui.commands(commands);
