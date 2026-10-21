@@ -1,4 +1,108 @@
-settings:
-  metrics: false # Включение/отключение системы метрик
-  update-check: false # Проверять наличие обновлений при запуске сервера?
-  need-key: true # Требовать ли ключ для открытия шалкеров в данжах (false — открывать без ключа)
+schema: 3
+revision: 6
+timezone: Europe/Moscow
+timers:
+  pve-seconds: 900
+  wave-interval-seconds: 180
+  pvp-seconds: 1800
+  pve-available-seconds: 86400
+  pvp-available-seconds: 3600
+  reconnect-seconds: 180
+  winner-claim-seconds: 300
+  loot-seconds: 180
+  cleanup-seconds: 60
+limits:
+  active-pve: 2
+  placed-events: 8
+  mobs-per-event: 64
+  total-mobs: 128
+  region-volume: 4194304
+  snapshot-chunks: 1024
+  simultaneous-pvp: 1
+  max-points: 512
+integrations:
+  # Жизни уже списывает действующий плагин сервера. JamDungeons НЕ списывает их второй раз.
+  lives:
+    enabled: true
+    placeholder: '%lives_value%'
+    deny-unresolved: true
+  economy:
+    mode: VAULT
+    command: "eco give {player} {amount}"
+    provider-plugin: ""
+    currency-name: "монет"
+  cases:
+    command: "phoenixcrates giveKey {key} {player} 1"
+    known-keys: []
+    plugin: PhoenixCrates
+    donation: ''
+    epic: ''
+    resource: ''
+scheduling:
+  enabled: false
+  pve-per-day: 2
+  pve-window-start: '10:00'
+  pve-window-end: '23:00'
+  pve-gap-minutes: 120
+  pvp-days: [WEDNESDAY, SATURDAY]
+  pvp-time: '20:00'
+  max-lateness-seconds: 60
+announcements:
+  pve-appearance: true
+  pvp-appearance: false
+  pvp-winner: true
+mob-drops: false
+protection:
+  # Дополнительная оболочка привата вокруг A/B. Вставка и восстановление используют исходные A/B.
+  horizontal-padding: 3
+  vertical-padding: 8
+  pve-pushback-distance: 3.0
+  pve-pushback-strength: 0.85
+  owner-exit-grace-seconds: 5
+
+# Все оперативные данные хранятся только в MariaDB. Настройки соединения применяются после перезапуска.
+database:
+  type: MARIADB
+  host: "51.68.150.133"
+  port: 3306
+  database: "jamdungeons"
+  username: "bloodsx"
+  password: "292zdtfyvEgvak18pdbAog6Z"
+  ssl-mode: disable
+worldguard:
+  enabled: true
+  priority: 100
+random-placement:
+  worlds: []
+  excluded-worlds: [build, build_world]
+  min-radius: 500
+  max-radius: 10000
+  spawn-distance: 256
+  player-distance: 128
+  attempts: 64
+  max-ground-slope: 4
+  min-ground-coverage: 0.80
+  air-min-height: 24
+  air-max-height: 48
+  # WATER: на сколько блоков основание корабля погружается под поверхность воды.
+  water-submerge-blocks: 2
+schematics:
+  # Запас привата с каждой из шести сторон схематики. A/B остаются точным размером файла.
+  protection-padding: 4
+  max-file-bytes: 33554432
+  max-inflated-bytes: 67108864
+coin-item:
+  material: PAPER
+  model: jamdungeons:coin
+  name: "&6Монетка &e+{amount}"
+  lore: ["&7ПКМ в руке: получить {amount} монет", "&8Одноразовая монетка данжа"]
+zombie-equipment:
+  armored-fraction: 0.5
+  armor: [CHAINMAIL_HELMET, CHAINMAIL_CHESTPLATE, CHAINMAIL_LEGGINGS, CHAINMAIL_BOOTS]
+  weapons: [IRON_SWORD, IRON_SHOVEL]
+
+# Гарантированный яд при успешном укусе пещерного паука, в том числе на Easy.
+# Более сильный или долгий яд Minecraft/других плагинов не ослабляется.
+combat:
+  cave-spider-poison-seconds: 7
+  cave-spider-poison-level: 1

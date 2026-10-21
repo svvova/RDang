@@ -1,0 +1,188 @@
+schema: 1
+mob-presets:
+  zombie:
+    entity: ZOMBIE
+    name: Зомби
+    zombie-equipment: true
+  skeleton:
+    entity: SKELETON
+    name: Скелет
+  spider:
+    entity: SPIDER
+    name: Паук
+    force-melee: true
+  cave_spider:
+    entity: CAVE_SPIDER
+    name: Ядовитый пещерный паук
+    force-melee: true
+  silverfish:
+    entity: SILVERFISH
+    name: Чешуйница
+  witch:
+    entity: WITCH
+    name: Ведьма
+  breeze:
+    entity: BREEZE
+    name: Ветреник
+  phantom:
+    entity: PHANTOM
+    name: Фантом
+  shulker:
+    entity: SHULKER
+    name: Шалкер как моб
+  husk:
+    entity: HUSK
+    name: Кадавр
+  parched:
+    entity: PARCHED
+    name: Пустынник
+  drowned:
+    entity: DROWNED
+    name: Утопленник
+    force-melee: true
+  drowned_trident:
+    entity: DROWNED
+    name: Утопленник с трезубцем
+    weapon: TRIDENT
+  guardian:
+    entity: GUARDIAN
+    name: Страж
+  elder_guardian:
+    entity: ELDER_GUARDIAN
+    name: Древний страж
+  pillager:
+    entity: PILLAGER
+    name: Разбойник
+  vindicator:
+    entity: VINDICATOR
+    name: Поборник
+  evoker:
+    entity: EVOKER
+    name: Заклинатель
+  vex:
+    entity: VEX
+    name: Досаждатель
+  ravager:
+    entity: RAVAGER
+    name: Разоритель
+  bogged:
+    entity: BOGGED
+    name: Болотник
+  husk_spear:
+    entity: HUSK
+    name: Кадавр с копьём
+    weapon: IRON_SPEAR
+themes:
+  mining:
+    name: Шахтёрский данж
+    waves:
+    - zombie: 4
+      spider: 2
+      silverfish: 4
+    - zombie: 4
+      skeleton: 3
+      spider: 2
+    - skeleton: 3
+      zombie: 3
+      cave_spider: 2
+      silverfish: 4
+    - skeleton: 3
+      zombie: 4
+      spider: 2
+    - skeleton: 4
+      zombie: 4
+      cave_spider: 2
+      silverfish: 4
+  forest:
+    name: Лесной данж
+    waves:
+    - drowned: 4
+      spider: 3
+    - drowned: 4
+      skeleton: 2
+      bogged: 1
+      spider: 2
+    - drowned: 3
+      skeleton: 1
+      bogged: 2
+      cave_spider: 2
+    - drowned: 3
+      skeleton: 2
+      bogged: 1
+      spider: 2
+      witch: 1
+    - drowned: 3
+      skeleton: 2
+      bogged: 2
+      cave_spider: 3
+      witch: 1
+  flying:
+    name: Летающий данж
+    waves:
+    - skeleton: 4
+      phantom: 2
+    - skeleton: 4
+      breeze: 1
+    - skeleton: 3
+      phantom: 3
+      breeze: 1
+    - skeleton: 3
+      breeze: 1
+      shulker: 1
+    - skeleton: 4
+      phantom: 2
+      breeze: 2
+      shulker: 1
+  desert:
+    name: Пустынный данж
+    waves:
+    - husk: 5
+      spider: 2
+    - husk: 4
+      parched: 3
+    - husk: 4
+      spider: 2
+      husk_spear: 2
+      parched: 1
+    - husk: 4
+      parched: 3
+      spider: 2
+    - husk: 5
+      parched: 4
+      husk_spear: 2
+      spider: 1
+  water:
+    name: Водный данж
+    waves:
+    - drowned: 6
+    - drowned: 5
+      guardian: 2
+    - drowned: 4
+      drowned_trident: 1
+      guardian: 2
+    - drowned: 4
+      drowned_trident: 1
+      guardian: 3
+    - drowned: 4
+      drowned_trident: 1
+      guardian: 3
+      elder_guardian: 1
+  raiders:
+    name: Данж с разбойниками
+    waves:
+    - pillager: 5
+      vindicator: 2
+    - pillager: 5
+      vindicator: 3
+    - pillager: 4
+      vindicator: 3
+      witch: 1
+    - pillager: 4
+      vindicator: 2
+      evoker: 1
+      vex: 2
+    - pillager: 4
+      vindicator: 2
+      ravager: 1
+      witch: 1
+      vex: 2

@@ -1,0 +1,134 @@
+schema: 1
+pve:
+  coins:
+    min: 0
+    max: 500
+  item-picks: 4
+  items:
+  - id: bread
+    material: BREAD
+    min: 8
+    max: 16
+    weight: 12
+  - id: iron
+    material: IRON_INGOT
+    min: 6
+    max: 12
+    weight: 16
+  - id: gold
+    material: GOLD_INGOT
+    min: 3
+    max: 8
+    weight: 10
+  - id: coal
+    material: COAL
+    min: 16
+    max: 32
+    weight: 10
+  - id: redstone
+    material: REDSTONE
+    min: 12
+    max: 24
+    weight: 10
+  - id: lapis
+    material: LAPIS_LAZULI
+    min: 8
+    max: 16
+    weight: 10
+  - id: tag
+    material: NAME_TAG
+    min: 1
+    max: 1
+    weight: 8
+  - id: saddle
+    material: SADDLE
+    min: 1
+    max: 1
+    weight: 8
+  - id: apple
+    material: GOLDEN_APPLE
+    min: 1
+    max: 2
+    weight: 8
+  - id: book
+    material: ENCHANTED_BOOK
+    min: 1
+    max: 1
+    weight: 6
+    books:
+    - enchantment: efficiency
+      level: 1
+    - enchantment: efficiency
+      level: 2
+    - enchantment: efficiency
+      level: 3
+    - enchantment: unbreaking
+      level: 1
+    - enchantment: unbreaking
+      level: 2
+    - enchantment: protection
+      level: 1
+    - enchantment: protection
+      level: 2
+    - enchantment: sharpness
+      level: 1
+    - enchantment: sharpness
+      level: 2
+  - id: diamond
+    material: DIAMOND
+    min: 1
+    max: 3
+    weight: 2
+pvp:
+  coins:
+    min: 2000
+    max: 10000
+  item-picks: 2
+  cases:
+  - id: donation
+    weight: 20
+  - id: epic
+    weight: 30
+  - id: resource
+    weight: 50
+  items:
+  - id: shulker
+    material: SHULKER_BOX
+    min: 1
+    max: 1
+    weight: 20
+  - id: elytra
+    material: ELYTRA
+    min: 1
+    max: 1
+    weight: 8
+  - id: apples
+    material: GOLDEN_APPLE
+    min: 8
+    max: 8
+    weight: 20
+  - id: totem
+    material: TOTEM_OF_UNDYING
+    min: 1
+    max: 2
+    weight: 17
+    amounts:
+    - amount: 1
+      weight: 70
+    - amount: 2
+      weight: 30
+  - id: diamonds
+    material: DIAMOND
+    min: 16
+    max: 16
+    weight: 15
+  - id: diamond_blocks
+    material: DIAMOND_BLOCK
+    min: 2
+    max: 4
+    weight: 20
+    amounts:
+    - amount: 2
+      weight: 75
+    - amount: 4
+      weight: 25

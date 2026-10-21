@@ -1,0 +1,3 @@
+# Арены создаются командами /jd create и через /jd admin.
+schema: 1
+arenas: {}
