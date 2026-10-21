@@ -15,8 +15,9 @@ Port the plugin foundation to **JamDungeons** (from `E:\Downloads\JamDungeons-1.
 ### Phase 2: Source Codebase Import & Gradle Configuration
 - [x] Import decompiled JamDungeons 1.1.9 sources into `src/main/java`.
 - [x] Import raw resources (`plugin.yml`, `config.yml`, `arenas.yml`, `messages.yml`, `rewards.yml`, `themes.yml`, `migrations/`).
-- [x] Update `build.gradle` to include:
-  - Paper API 1.21.4
+- [x] Update `build.gradle` to target Purpur 26.3:
+  - Purpur API 26.3 (`org.purpurmc.purpur:purpur-api:26.3.build.2653-stable`)
+  - Java 26 toolchain (`JavaLanguageVersion.of(26)`)
   - MariaDB JDBC driver (shaded)
   - WorldEdit Bukkit API (compileOnly)
   - WorldGuard Bukkit API (compileOnly)

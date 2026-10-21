@@ -1,7 +1,7 @@
 name: JamDungeons
 version: 1.1.9
 main: org.jamhardcore.dungeons.JamDungeons
-api-version: '1.21'
+api-version: '26.3'
 authors: [JamHardcore]
 description: Six PvE dungeon themes, shared PvP events and in-game administration
 softdepend: [Vault, PlaceholderAPI, PhoenixCrates, JamCore, WorldGuard, WorldEdit, FastAsyncWorldEdit, CoreProtect]

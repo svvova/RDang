@@ -3,6 +3,7 @@
 ## Active Status
 - Branch: `new`
 - Base: JamDungeons 1.1.9 (90% native mechanics preserved)
+- Target Platform: Purpur 26.3 (`org.purpurmc.purpur:purpur-api:26.3.build.2653-stable`)
 - Build Status: SUCCESS (`./gradlew clean build` completes with 0 errors)
 - Output Artifact: `build/libs/Rdang-1.1.9.jar` (1.01 MB shaded JAR)
 
