@@ -135,7 +135,7 @@ public final class WorldGuardRegions {
         }
     }
 
-    private void remove(String world, String id) throws Exception {
+    public void remove(String world, String id) throws Exception {
         if (!id.startsWith("jd_arena_") && !id.startsWith("jd_event_") && !id.startsWith("dang_")) {
             throw new IllegalArgumentException("\u0427\u0443\u0436\u043e\u0439 ID \u0440\u0435\u0433\u0438\u043e\u043d\u0430");
         }

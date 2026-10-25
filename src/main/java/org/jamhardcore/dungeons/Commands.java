@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 import org.bukkit.Bukkit;
@@ -25,6 +26,7 @@ import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.block.Block;
+import org.bukkit.block.Container;
 import org.bukkit.block.data.type.Chest;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -1152,16 +1154,17 @@ public final class Commands implements CommandExecutor, TabCompleter {
         if (arena.pos1 == null || arena.pos2 == null) {
             throw new IllegalArgumentException("У арены '" + arena.name + "' не заданы границы pos1/pos2. Сначала задайте границы или выберите схематику.");
         }
-        if (this.e.sessions.containsKey(arena.id)) {
-            throw new IllegalArgumentException("Сначала остановите активное событие: /jd stop " + arena.id);
-        }
         if (dx == 0 && dy == 0 && dz == 0) {
             throw new IllegalArgumentException("Смещение равно 0 блоков");
         }
 
-        Model.Box oldBox = arena.box();
-        Model.Point newPos1 = arena.pos1.shift(dx, dy, dz, arena.pos1.world());
-        Model.Point newPos2 = arena.pos2.shift(dx, dy, dz, arena.pos2.world());
+        Model.Session session = this.e.session(arena.id);
+        Model.Arena targetArena = (session != null && session.arena != null) ? session.arena : arena;
+
+        Model.Box oldBox = targetArena.box();
+        Model.Box oldPlayBox = targetArena.playBox();
+        Model.Point newPos1 = targetArena.pos1.shift(dx, dy, dz, targetArena.pos1.world());
+        Model.Point newPos2 = targetArena.pos2.shift(dx, dy, dz, targetArena.pos2.world());
         Model.Box newBox = Model.Box.of(newPos1, newPos2);
 
         World world = Bukkit.getWorld(newBox.world());
@@ -1173,31 +1176,38 @@ public final class Commands implements CommandExecutor, TabCompleter {
         }
         this.e.structures.check(newBox);
 
-        Model.Arena newArena = Json.copy(arena, Model.Arena.class);
-        newArena.pos1 = newPos1;
-        newArena.pos2 = newPos2;
-        if (newArena.chest != null) {
-            newArena.chest = newArena.chest.shift(dx, dy, dz, newArena.chest.world());
-        }
-        if (newArena.exit != null) {
-            newArena.exit = newArena.exit.shift(dx, dy, dz, newArena.exit.world());
-        }
-        if (newArena.points != null) {
-            for (Model.Spawn sp : newArena.points) {
-                if (sp.point != null) {
-                    sp.point = sp.point.shift(dx, dy, dz, sp.point.world());
-                }
-            }
-        }
+        Model.Arena newArena = targetArena.shift(dx, dy, dz);
 
         if (sender != null) {
-            sender.sendMessage(Messages.color("&e[FAWE] Смещение схематики &a" + arena.name + " &7(" + arena.id + ") &eна &f" + formatDelta(dx, dy, dz) + "&e..."));
+            String eventNote = session != null ? " (активное событие, фаза: " + session.phase + ")" : "";
+            sender.sendMessage(Messages.color("&e[FAWE] Смещение схематики &a" + targetArena.name + " &7(" + targetArena.id + ")" + eventNote + " &eна &f" + formatDelta(dx, dy, dz) + "&e..."));
         }
 
-        Path backupFile = this.e.structures.root().resolve("backups/arena_" + arena.id + ".schem");
+        // Сохраняем содержимое сундука, если событие уже идет или в сундуке есть лут
+        ItemStack[] initialChestItems = null;
+        if (targetArena.chest != null && targetArena.chest.location() != null) {
+            try {
+                Location oldChestLoc = targetArena.chest.location();
+                if (oldChestLoc != null && oldChestLoc.getWorld() != null && oldChestLoc.getBlock().getState() instanceof Container container) {
+                    initialChestItems = container.getInventory().getContents().clone();
+                }
+            } catch (Exception ignored) {}
+        }
+        final ItemStack[] savedChestItems = initialChestItems;
+
+        Path backupFile;
+        if (session != null) {
+            if (session.backup == null) {
+                session.backup = "backups/" + session.id + ".schem";
+            }
+            backupFile = this.e.structures.root().resolve(session.backup);
+        } else {
+            backupFile = this.e.structures.root().resolve("backups/arena_" + arena.id + ".schem");
+        }
+
         boolean hasBackup = Files.isRegularFile(backupFile);
-        boolean hasSchematic = arena.schematic != null;
-        boolean hasTemplate = arena.template && Files.isRegularFile(this.e.structures.root().resolve("templates/" + arena.id + ".schem"));
+        boolean hasSchematic = targetArena.schematic != null;
+        boolean hasTemplate = targetArena.template && Files.isRegularFile(this.e.structures.root().resolve("templates/" + targetArena.id + ".schem"));
 
         CompletableFuture<Void> undoTask;
         if (moveBlocks && hasBackup) {
@@ -1217,8 +1227,10 @@ public final class Commands implements CommandExecutor, TabCompleter {
             if (!moveBlocks) {
                 return CompletableFuture.completedFuture(null);
             }
-            this.e.manualPastes.removeIf(mp -> mp.id().equalsIgnoreCase(arena.id));
-            this.e.manualPastes.push(new Engine.ManualPaste(newArena.id, newBox.world(), newBox, "backups/arena_" + arena.id + ".schem", System.currentTimeMillis()));
+            if (session == null) {
+                this.e.manualPastes.removeIf(mp -> mp.id().equalsIgnoreCase(arena.id));
+                this.e.manualPastes.push(new Engine.ManualPaste(newArena.id, newBox.world(), newBox, "backups/arena_" + arena.id + ".schem", System.currentTimeMillis()));
+            }
 
             if (newArena.schematic != null) {
                 SchematicCodec.Image image;
@@ -1229,7 +1241,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                 }
                 return this.e.structures.pasteAsync(newArena, image);
             } else if (hasTemplate) {
-                Path templatePath = this.e.structures.root().resolve("templates/" + arena.id + ".schem");
+                Path templatePath = this.e.structures.root().resolve("templates/" + newArena.id + ".schem");
                 return this.e.structures.pasteAsync(templatePath, newBox, newArena.pasteAir);
             }
             return CompletableFuture.completedFuture(null);
@@ -1240,26 +1252,96 @@ public final class Commands implements CommandExecutor, TabCompleter {
                 if (err != null) {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (sender != null) this.e.msg.error(sender, "Ошибка перемещения: " + cause.getMessage());
-                    this.e.report("Ошибка перемещения арены " + arena.id, cause);
-                    return;
-                }
-                try {
-                    this.e.c.saveArena(newArena);
-                    this.e.regions.sync(newArena);
-                } catch (Exception ex) {
-                    if (sender != null) this.e.msg.error(sender, "Ошибка обновления региона: " + ex.getMessage());
-                    this.e.report("Ошибка сохранения региона после сдвига " + arena.id, ex);
+                    this.e.report("Ошибка перемещения арены " + targetArena.id, cause);
                     return;
                 }
 
-                if (sender instanceof Player pl) {
-                    if (oldBox.contains(Model.Point.of(pl.getLocation()))) {
-                        pl.teleport(pl.getLocation().add(dx, dy, dz));
+                // Восстанавливаем сохраненные предметы в сундуке на новой позиции
+                if (savedChestItems != null && newArena.chest != null) {
+                    try {
+                        Location newChestLoc = newArena.chest.location();
+                        if (newChestLoc != null && newChestLoc.getWorld() != null && newChestLoc.getBlock().getState() instanceof Container container) {
+                            container.getInventory().setContents(savedChestItems);
+                        }
+                    } catch (Exception ignored) {}
+                }
+
+                if (session != null) {
+                    session.arena = newArena;
+                    session.outsideSince = 0L;
+                    if (session.lastOwner != null) {
+                        session.lastOwner = session.lastOwner.shift(dx, dy, dz, session.lastOwner.world());
+                    }
+
+                    // Перемещаем регион WorldGuard для активной сессии
+                    if (session.regionId != null) {
+                        try {
+                            this.e.regions.remove(oldBox.world(), session.regionId);
+                        } catch (Exception ignored) {}
+                        try {
+                            this.e.regions.create(session);
+                        } catch (Exception ex) {
+                            this.e.p.getLogger().warning("Ошибка обновления региона WorldGuard для сессии " + session.id + ": " + ex.getMessage());
+                        }
+                    }
+
+                    // Перемещаем живых мобов активной сессии
+                    for (String uuidStr : new ArrayList<>(session.entities)) {
+                        try {
+                            UUID u = UUID.fromString(uuidStr);
+                            org.bukkit.entity.Entity ent = Bukkit.getEntity(u);
+                            if (ent != null && ent.isValid()) {
+                                ent.teleport(ent.getLocation().add(dx, dy, dz));
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                    // Смещаем точки привязки и возрождения мобов
+                    for (Map.Entry<String, Model.Combatant> entry : session.combatants.entrySet()) {
+                        Model.Combatant c = entry.getValue();
+                        if (c != null && c.spawn() != null) {
+                            entry.setValue(new Model.Combatant(c.preset(), c.spawn().shift(dx, dy, dz, c.spawn().world()), c.wave()));
+                        }
+                    }
+
+                    // Сохраняем обновленную сессию в БД MariaDB
+                    try {
+                        this.e.db.save(session);
+                    } catch (Exception ex) {
+                        this.e.p.getLogger().warning("Ошибка сохранения сессии " + session.id + " в БД: " + ex.getMessage());
+                    }
+
+                    // Если арена со статическим размещением, обновляем и исходное описание
+                    if (arena.placement == Model.Placement.STATIC) {
+                        try {
+                            this.e.c.saveArena(newArena);
+                            this.e.regions.sync(newArena);
+                        } catch (Exception ignored) {}
+                    }
+                } else {
+                    // Сессия не запущена — обновляем шаблон арены и приват
+                    try {
+                        this.e.c.saveArena(newArena);
+                        this.e.regions.sync(newArena);
+                    } catch (Exception ex) {
+                        if (sender != null) this.e.msg.error(sender, "Ошибка обновления региона: " + ex.getMessage());
+                        this.e.report("Ошибка сохранения региона после сдвига " + arena.id, ex);
+                        return;
+                    }
+                }
+
+                // Перемещаем всех игроков внутри арены
+                World bukkitWorld = Bukkit.getWorld(oldBox.world());
+                if (bukkitWorld != null) {
+                    for (Player pl : bukkitWorld.getPlayers()) {
+                        if (oldPlayBox.contains(pl.getLocation())) {
+                            pl.teleport(pl.getLocation().add(dx, dy, dz));
+                        }
                     }
                 }
 
                 if (sender != null) {
-                    sender.sendMessage(Messages.color("&aСхематика арены &e" + newArena.name + " &7(" + newArena.id + ") &aуспешно смещена на &f" + formatDelta(dx, dy, dz) + "&a!"));
+                    String note = session != null ? " (активное событие, фаза: " + session.phase + ")" : "";
+                    sender.sendMessage(Messages.color("&aСхематика арены &e" + newArena.name + " &7(" + newArena.id + ")" + note + " &aуспешно смещена на &f" + formatDelta(dx, dy, dz) + "&a!"));
                     sender.sendMessage(Messages.color("&7Новые границы: &f[" + newBox.x1() + ", " + newBox.y1() + ", " + newBox.z1() + "] — [" + newBox.x2() + ", " + newBox.y2() + ", " + newBox.z2() + "]"));
                     if (newArena.chest != null) {
                         sender.sendMessage(Messages.color("&7Сундук: &f[" + (int)newArena.chest.x() + ", " + (int)newArena.chest.y() + ", " + (int)newArena.chest.z() + "]"));

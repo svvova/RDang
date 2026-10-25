@@ -371,6 +371,8 @@ implements Listener {
             "&7Сдвинуть схематику и приват в мире",
             "&7Вверх, вниз, влево, вправо, вперед, назад",
             "&7на указанное количество блоков.",
+            session != null ? "&eСобытие сейчас: &aАКТИВНО (" + session.phase + ")" : "&7Событие: не размещено",
+            "&aРаботает даже во время активного боя!",
             "&aЛандшафт старого места восстанавливается,",
             "&aа схема плавно переносится на новое место.",
             "&eНажмите, чтобы открыть меню управления"
@@ -396,9 +398,11 @@ implements Listener {
             this.main(pl, 0);
             return;
         }
+        Model.Session session = this.e.session(ar.id);
+        Model.Arena targetArena = (session != null && session.arena != null) ? session.arena : ar;
         int validStep = Math.max(1, Math.min(step, 100));
-        Menu m = this.menu(pl, "Смещение • " + ar.name);
-        Model.Box box = ar.box();
+        Menu m = this.menu(pl, "Смещение • " + targetArena.name);
+        Model.Box box = targetArena.box();
 
         String facing = getFacingName(pl);
         List<String> infoLore = new ArrayList<>();
@@ -406,11 +410,19 @@ implements Listener {
             infoLore.add("&7Координаты: &f[" + box.x1() + ", " + box.y1() + ", " + box.z1() + "] — [" + box.x2() + ", " + box.y2() + ", " + box.z2() + "]");
             infoLore.add("&7Размер: &f" + (box.x2() - box.x1() + 1) + "×" + (box.y2() - box.y1() + 1) + "×" + (box.z2() - box.z1() + 1));
         }
-        infoLore.add("&7Схематика: &f" + (ar.schematic != null ? ar.schematic : (ar.template ? "внутренний шаблон" : "не задана")));
-        infoLore.add("&7Сундук: &f" + (ar.chest != null ? "[" + (int)ar.chest.x() + ", " + (int)ar.chest.y() + ", " + (int)ar.chest.z() + "]" : "не задан"));
+        infoLore.add("&7Схематика: &f" + (targetArena.schematic != null ? targetArena.schematic : (targetArena.template ? "внутренний шаблон" : "не задана")));
+        infoLore.add("&7Сундук: &f" + (targetArena.chest != null ? "[" + (int)targetArena.chest.x() + ", " + (int)targetArena.chest.y() + ", " + (int)targetArena.chest.z() + "]" : "не задан"));
+        if (session != null) {
+            infoLore.add("&eСтатус события: &aАКТИВНО (" + session.phase + ")");
+            if (session.kind == Model.Kind.PVE) {
+                infoLore.add("&7Волна: &e" + session.wave + " &7| Мобы: &e" + session.entities.size());
+            }
+        } else {
+            infoLore.add("&7Статус события: &fНе запущено");
+        }
         infoLore.add("&7Взгляд игрока: &e" + facing);
         infoLore.add("&7Текущий шаг: &a" + validStep + " &7блок(ов)");
-        m.button(4, Material.MAP, "&a" + ar.name + " &7(" + ar.id + ")", infoLore, null);
+        m.button(4, Material.MAP, "&a" + targetArena.name + " &7(" + targetArena.id + ")", infoLore, null);
 
         // Slot 11: ВВЕРХ (+Y)
         m.button(11, Material.SLIME_BLOCK, "&a⬆ ВВЕРХ (+" + validStep + " Y)", List.of(
@@ -418,7 +430,7 @@ implements Listener {
             "&7Координаты Y увеличатся на &a+" + validStep,
             "&eНажмите для применения"
         ), click -> {
-            this.commands.moveArena(pl, ar, 0, validStep, 0, true).whenComplete((v, err) -> {
+            this.commands.moveArena(pl, targetArena, 0, validStep, 0, true).whenComplete((v, err) -> {
                 Bukkit.getScheduler().runTask(this.p, () -> {
                     if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
                         this.moveMenu(pl, ar.id, validStep);
@@ -433,7 +445,7 @@ implements Listener {
             "&7Координаты Y уменьшатся на &c-" + validStep,
             "&eНажмите для применения"
         ), click -> {
-            this.commands.moveArena(pl, ar, 0, -validStep, 0, true).whenComplete((v, err) -> {
+            this.commands.moveArena(pl, targetArena, 0, -validStep, 0, true).whenComplete((v, err) -> {
                 Bukkit.getScheduler().runTask(this.p, () -> {
                     if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
                         this.moveMenu(pl, ar.id, validStep);
@@ -451,7 +463,7 @@ implements Listener {
             "&eНажмите для применения"
         ), click -> {
             int[] d = Commands.getDirectionDelta(pl, "forward", validStep);
-            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+            this.commands.moveArena(pl, targetArena, d[0], d[1], d[2], true).whenComplete((v, err) -> {
                 Bukkit.getScheduler().runTask(this.p, () -> {
                     if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
                         this.moveMenu(pl, ar.id, validStep);
@@ -468,7 +480,7 @@ implements Listener {
             "&eНажмите для применения"
         ), click -> {
             int[] d = Commands.getDirectionDelta(pl, "left", validStep);
-            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+            this.commands.moveArena(pl, targetArena, d[0], d[1], d[2], true).whenComplete((v, err) -> {
                 Bukkit.getScheduler().runTask(this.p, () -> {
                     if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
                         this.moveMenu(pl, ar.id, validStep);
@@ -505,7 +517,7 @@ implements Listener {
             "&eНажмите для применения"
         ), click -> {
             int[] d = Commands.getDirectionDelta(pl, "right", validStep);
-            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+            this.commands.moveArena(pl, targetArena, d[0], d[1], d[2], true).whenComplete((v, err) -> {
                 Bukkit.getScheduler().runTask(this.p, () -> {
                     if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
                         this.moveMenu(pl, ar.id, validStep);
@@ -522,7 +534,7 @@ implements Listener {
             "&eНажмите для применения"
         ), click -> {
             int[] d = Commands.getDirectionDelta(pl, "back", validStep);
-            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+            this.commands.moveArena(pl, targetArena, d[0], d[1], d[2], true).whenComplete((v, err) -> {
                 Bukkit.getScheduler().runTask(this.p, () -> {
                     if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
                         this.moveMenu(pl, ar.id, validStep);
@@ -552,11 +564,25 @@ implements Listener {
         // Re-paste on current location: Slot 49
         m.button(49, Material.STRUCTURE_BLOCK, "&eПеревставить схему здесь", List.of(
             "&7Принудительно обновить блоки схемы",
-            "&7на текущих координатах региона",
-            "&7Режим воздуха: " + (ar.pasteAir ? "&aВКЛ" : "&cВЫКЛ")
+            "&7на текущих координатах" + (session != null ? " события" : " региона"),
+            "&7Режим воздуха: " + (targetArena.pasteAir ? "&aВКЛ" : "&cВЫКЛ")
         ), click -> {
-            this.command(pl, "schematic", "paste", ar.id);
-            this.moveMenu(pl, ar.id, validStep);
+            if (session != null) {
+                pl.sendMessage(Messages.color("&e[FAWE] Перевставка схемы активного события " + session.arenaId + "..."));
+                this.e.structures.placeAsync(session).whenComplete((v, err) -> {
+                    Bukkit.getScheduler().runTask(this.p, () -> {
+                        if (err != null) {
+                            this.e.msg.error(pl, "Ошибка перевставки: " + err.getMessage());
+                        } else {
+                            pl.sendMessage(Messages.color("&aСхема успешно обновлена!"));
+                        }
+                        this.moveMenu(pl, ar.id, validStep);
+                    });
+                });
+            } else {
+                this.command(pl, "schematic", "paste", ar.id);
+                this.moveMenu(pl, ar.id, validStep);
+            }
         });
 
         // Back to Arena: Slot 45
