@@ -28,6 +28,11 @@ public final class Messages {
         return LegacyComponentSerializer.legacyAmpersand().deserialize(s);
     }
 
+    public static String stripColor(String s) {
+        if (s == null) return "";
+        return s.replaceAll("(?i)[&§][0-9a-fk-orx]", "");
+    }
+
     public String raw(String key, Map<String, String> vars) {
         String s = this.config.file("messages").getString(key, key);
         for (Map.Entry<String, String> v : vars.entrySet()) {
@@ -49,7 +54,11 @@ public final class Messages {
     }
 
     public void error(CommandSender target, String error) {
-        this.send(target, "error", Map.of("error", Objects.toString(error, "\u041e\u0448\u0438\u0431\u043a\u0430")));
+        String msg = Objects.toString(error, "Ошибка");
+        while (msg.startsWith("Ошибка: ") || msg.startsWith("ошибка: ")) {
+            msg = msg.substring(8);
+        }
+        this.send(target, "error", Map.of("error", msg));
     }
 }
 

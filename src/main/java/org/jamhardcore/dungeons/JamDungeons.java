@@ -79,6 +79,7 @@ extends JavaPlugin {
             this.db.recoverVouchers();
             this.engine.recover();
             EventSchedule schedule = new EventSchedule(this, this.engine);
+            this.engine.schedule = schedule;
             Bukkit.getScheduler().runTaskTimer((Plugin)this, () -> {
                 this.engine.tick();
                 this.guards.pulse();

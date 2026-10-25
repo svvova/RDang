@@ -246,7 +246,11 @@ implements Listener {
             this.command(pl, "pos2", id);
             this.arena(pl, id);
         });
-        m.button(12, Material.CHEST, "&e\u0421\u0443\u043d\u0434\u0443\u043a \u2014 \u043f\u043e\u0434 \u043f\u0440\u0438\u0446\u0435\u043b\u043e\u043c", List.of("&7\u041f\u043e\u0441\u043c\u043e\u0442\u0440\u0438\u0442\u0435 \u043d\u0430 \u043e\u0434\u0438\u043d\u043e\u0447\u043d\u044b\u0439 \u043f\u0443\u0441\u0442\u043e\u0439 \u0441\u0443\u043d\u0434\u0443\u043a"), click -> {
+        m.button(12, Material.CHEST, "&eСундук — под прицелом", List.of(
+            ar.chest != null ? "&aКоординаты: &f[" + (int)ar.chest.x() + ", " + (int)ar.chest.y() + ", " + (int)ar.chest.z() + "]" : "&cСундук не задан",
+            "&7Посмотрите на одиночный пустой сундук/бочку",
+            "&7Нажмите для привязки под прицелом"
+        ), click -> {
             this.command(pl, "chest", id);
             this.arena(pl, id);
         });
@@ -264,21 +268,58 @@ implements Listener {
             this.command(pl, "enable", id, ar.enabled ? "off" : "on");
             this.arena(pl, id);
         });
-        m.button(20, Material.BEACON, "&a\u0420\u0430\u0437\u043c\u0435\u0441\u0442\u0438\u0442\u044c \u0441\u043e\u0431\u044b\u0442\u0438\u0435", List.of(PlacementService.automatic(ar, null) ? "&e\u041f\u043e\u0438\u0441\u043a \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u043e\u0433\u043e \u043c\u0435\u0441\u0442\u0430 \u0432 \u043c\u0438\u0440\u0435" : "&e\u0417\u0430\u043f\u0443\u0441\u043a \u0443 \u0438\u0441\u0445\u043e\u0434\u043d\u043e\u0439 \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438", "&7\u0420\u0435\u0436\u0438\u043c: " + ar.placement.label, "&7\u0414\u043b\u044f \u0432\u0441\u0442\u0430\u0432\u043a\u0438 \u0432 A: \u043a\u043d\u043e\u043f\u043a\u0430 \u00ab\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u044c \u0441\u0445\u0435\u043c\u0443\u00bb", "&7\u0420\u0435\u0430\u043b\u044c\u043d\u044b\u0435 \u043d\u0430\u0433\u0440\u0430\u0434\u044b \u043f\u043e\u0441\u043b\u0435 \u043f\u043e\u0431\u0435\u0434\u044b"), click -> {
-            this.command(pl, "spawn", id);
+        m.button(20, Material.BEACON, "&aРазместить событие", List.of(
+            PlacementService.automatic(ar, null) ? "&eПоиск случайного места в мире" : "&eЗапуск у исходной постройки",
+            "&7Режим: " + ar.placement.label,
+            "&7Воздух схемы: " + (ar.pasteAir ? "&aВКЛ (с воздухом)" : "&cВЫКЛ (без воздуха)"),
+            "&7ЛКМ: Разместить событие",
+            ar.template ? "&7ПКМ: Разместить рядом с вами (30-150 блоков)" : "",
+            "&7Для вставки в A: кнопка «Вставить схему»",
+            "&7Реальные награды после победы"
+        ).stream().filter(s -> !s.isEmpty()).toList(), click -> {
+            if (click.isRightClick() && ar.template) {
+                pl.sendMessage(Messages.color("&eПоиск места рядом с вами (30-150 блоков) для &a" + id + "&e..."));
+                this.e.placement.spawnNear(id, pl.getLocation(), 30, 150, false, pl.getName()).whenComplete((res, error) -> {
+                    if (error != null) {
+                        this.e.msg.error(pl, error.getMessage());
+                    } else {
+                        pl.sendMessage(Messages.color("&aАрена " + id + " успешно размещена рядом!"));
+                    }
+                });
+            } else {
+                this.command(pl, "spawn", id);
+            }
             this.arena(pl, id);
         });
-        m.button(21, Material.CLOCK, "&e\u041f\u0440\u043e\u0432\u0435\u0440\u043e\u0447\u043d\u044b\u0439 \u0437\u0430\u043f\u0443\u0441\u043a", List.of("&7\u041f\u044f\u0442\u044c \u0432\u043e\u043b\u043d: \u0437\u0430\u0447\u0438\u0441\u0442\u043a\u0430 \u0438\u043b\u0438 3 \u043c\u0438\u043d\u0443\u0442\u044b", PlacementService.automatic(ar, null) ? "&e\u041f\u043e\u0438\u0441\u043a \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u043e\u0433\u043e \u043c\u0435\u0441\u0442\u0430 \u0432 \u043c\u0438\u0440\u0435" : "&e\u0417\u0430\u043f\u0443\u0441\u043a \u0443 \u0438\u0441\u0445\u043e\u0434\u043d\u043e\u0439 \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438", "&7\u0411\u0435\u0437 \u043d\u0430\u0433\u0440\u0430\u0434 \u0438 \u043f\u0440\u043e\u0432\u0435\u0440\u043a\u0438 \u0436\u0438\u0437\u043d\u0435\u0439", "&c\u041e\u0431\u044b\u0447\u043d\u0430\u044f \u0441\u043c\u0435\u0440\u0442\u044c \u0441\u0435\u0440\u0432\u0435\u0440\u0430 \u0432\u0441\u0451 \u0440\u0430\u0432\u043d\u043e \u0440\u0435\u0430\u043b\u044c\u043d\u0430!"), click -> {
-            this.command(pl, "test", id);
+        m.button(21, Material.CLOCK, "&eПроверочный запуск", List.of(
+            "&7Пять волн: зачистка или 3 минуты",
+            PlacementService.automatic(ar, null) ? "&eПоиск случайного места в мире" : "&eЗапуск у исходной постройки",
+            "&7ЛКМ: Тестовый запуск",
+            ar.template ? "&7ПКМ: Тест рядом с вами (30-150 блоков)" : "",
+            "&7Без наград и проверки жизней",
+            "&cОбычная смерть сервера всё равно реальна!"
+        ).stream().filter(s -> !s.isEmpty()).toList(), click -> {
+            if (click.isRightClick() && ar.template) {
+                pl.sendMessage(Messages.color("&eПоиск места рядом с вами для теста &a" + id + "&e..."));
+                this.e.placement.spawnNear(id, pl.getLocation(), 30, 150, true, pl.getName()).whenComplete((res, error) -> {
+                    if (error != null) {
+                        this.e.msg.error(pl, error.getMessage());
+                    } else {
+                        pl.sendMessage(Messages.color("&aТестовая арена " + id + " успешно размещена рядом!"));
+                    }
+                });
+            } else {
+                this.command(pl, "test", id);
+            }
             this.arena(pl, id);
         });
         m.button(22, Material.BARRIER, "&c\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c \u0438 \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c", List.of("&7\u0421 \u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u0435\u043c \u0443\u0436\u0435 \u0437\u0430\u043a\u0440\u0435\u043f\u043b\u0451\u043d\u043d\u044b\u0445 \u043d\u0430\u0433\u0440\u0430\u0434"), click -> this.confirm(pl, "\u041e\u0441\u0442\u0430\u043d\u043e\u0432\u0438\u0442\u044c " + id, () -> {
             this.command(pl, "stop", id);
             this.arena(pl, id);
         }));
-        m.button(23, Material.STRUCTURE_BLOCK, "&e\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0448\u0430\u0431\u043b\u043e\u043d \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438", List.of("&7\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u0442 \u0438\u0437\u043c\u0435\u043d\u0451\u043d\u043d\u044b\u0435 \u0431\u043b\u043e\u043a\u0438 \u0440\u0435\u0433\u0438\u043e\u043d\u0430", "&7\u0421\u0443\u043d\u0434\u0443\u043a \u0438 \u0442\u043e\u0447\u043a\u0438 \u043f\u0435\u0440\u0435\u043d\u043e\u0441\u044f\u0442\u0441\u044f \u0441 \u043a\u043e\u043f\u0438\u0435\u0439", "&7\u0418\u0441\u0445\u043e\u0434\u043d\u0430\u044f \u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0430 \u043e\u0441\u0442\u0430\u0451\u0442\u0441\u044f \u0434\u043b\u044f \u043f\u0440\u0430\u0432\u043e\u043a", "&7\u041d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u0442 \u043c\u043e\u0431\u043e\u0432", "&7\u0420\u0435\u0436\u0438\u043c: " + ar.placement.label), click -> this.confirm(pl, "\u0417\u0430\u043f\u0438\u0441\u0430\u0442\u044c \u0448\u0430\u0431\u043b\u043e\u043d " + id, () -> {
+        m.button(23, Material.STRUCTURE_BLOCK, "&eСохранить шаблон постройки", List.of("&7Сохраняет изменённые блоки региона", "&7Сундук и точки переносятся с копией", "&7Исходная постройка остаётся для правок", "&7Плавная запись через FastAsyncWorldEdit", "&7Не сохраняет мобов", "&7Режим: " + ar.placement.label), click -> this.confirm(pl, "Записать шаблон " + id, () -> {
+            pl.closeInventory();
             this.command(pl, "template", "save", id);
-            this.arena(pl, id);
         }));
         m.button(24, Material.COMPASS, "&e\u041f\u043b\u043e\u0449\u0430\u0434\u043a\u0438 \u0434\u043b\u044f \u0448\u0430\u0431\u043b\u043e\u043d\u0430", List.of("&7\u0423\u043a\u0430\u0437\u0430\u043d\u043d\u044b\u0435 \u0432\u0440\u0443\u0447\u043d\u0443\u044e \u043c\u0435\u0441\u0442\u0430 \u0440\u0430\u0437\u043c\u0435\u0449\u0435\u043d\u0438\u044f"), click -> this.sites(pl, id, 0));
         m.button(25, Material.COMPARATOR, "&e\u041f\u0440\u043e\u0432\u0435\u0440\u0438\u0442\u044c \u0430\u0440\u0435\u043d\u0443", List.of(), click -> this.command(pl, "validate", id));
@@ -297,18 +338,229 @@ implements Listener {
             this.arena(pl, id);
         });
         if (ar.schematic != null) {
-            m.button(33, Material.STRUCTURE_BLOCK, "&e\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u044c \u0441\u0445\u0435\u043c\u0443 \u0434\u043b\u044f \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438", List.of("&7\u0412\u0441\u0442\u0430\u0432\u043a\u0430 \u0447\u0435\u0440\u0435\u0437 WorldEdit / FAWE", "&7\u0420\u0430\u0437\u043c\u0435\u0440\u044b \u0438 \u043f\u0440\u0438\u0432\u0430\u0442 \u043e\u0431\u043d\u043e\u0432\u044f\u0442\u0441\u044f \u043f\u043e \u0444\u0430\u0439\u043b\u0443", "&7\u0417\u0430\u043f\u0430\u0441 \u043f\u0440\u0438\u0432\u0430\u0442\u0430: +" + this.e.c.main().getInt("schematics.protection-padding", 4) + " \u0441\u043e \u0432\u0441\u0435\u0445 \u0441\u0442\u043e\u0440\u043e\u043d", "&c\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u0443\u0439\u0442\u0435 \u0432\u044b\u0434\u0435\u043b\u0435\u043d\u043d\u044b\u0439 \u043c\u0438\u0440 \u0434\u043b\u044f \u0441\u0431\u043e\u0440\u043a\u0438"), click -> this.confirm(pl, "\u0412\u0441\u0442\u0430\u0432\u0438\u0442\u044c " + id, () -> {
+            m.button(33, Material.STRUCTURE_BLOCK, "&eВставить схему для настройки", List.of(
+                "&7Плавная вставка через FastAsyncWorldEdit",
+                "&7Режим воздуха: " + (ar.pasteAir ? "&aВКЛ (с воздухом)" : "&cВЫКЛ (без воздуха)"),
+                "&7Размеры и приват обновятся по файлу",
+                "&7Запас привата: +" + this.e.c.main().getInt("schematics.protection-padding", 4) + " со всех сторон",
+                "&aСервер не зависает — процесс идет в фоне"
+            ), click -> this.confirm(pl, "Вставить " + id, () -> {
+                pl.closeInventory();
                 this.command(pl, "schematic", "paste", id);
-                this.arena(pl, id);
             }));
         }
         if (ar.schematic != null) {
-            m.button(36, Material.MAP, "&a\u041f\u043e\u0434\u043e\u0433\u043d\u0430\u0442\u044c \u0440\u0435\u0433\u0438\u043e\u043d \u043f\u043e\u0434 \u0441\u0445\u0435\u043c\u0430\u0442\u0438\u043a\u0443", List.of("&7\u041f\u0435\u0440\u0435\u0447\u0438\u0442\u0430\u0442\u044c \u0440\u0430\u0437\u043c\u0435\u0440\u044b \u0444\u0430\u0439\u043b\u0430", "&7\u041e\u0431\u043d\u043e\u0432\u0438\u0442\u044c A/B \u0438 \u043f\u0440\u0438\u0432\u0430\u0442 \u0431\u0435\u0437 \u0432\u0441\u0442\u0430\u0432\u043a\u0438 \u0431\u043b\u043e\u043a\u043e\u0432"), click -> {
+            m.button(36, Material.MAP, "&aПодогнать регион под схематику", List.of("&7Перечитать размеры файла", "&7Обновить A/B и приват без вставки блоков"), click -> {
                 this.command(pl, "schematic", "fit", id);
                 this.arena(pl, id);
             });
         }
+        m.button(37, ar.pasteAir ? Material.CYAN_STAINED_GLASS : Material.TINTED_GLASS,
+            "&eВставка воздуха: " + (ar.pasteAir ? "&aВКЛ (с воздухом)" : "&cВЫКЛ (без воздуха)"),
+            List.of(
+                "&7Текущий режим: " + (ar.pasteAir ? "&aВставлять блоки воздуха" : "&cИгнорировать воздух"),
+                "&7ЛКМ: переключить для этой арены",
+                "&7Без воздуха: ускоряет вставку, не срезает",
+                "&7окружающий рельеф и сохраняет пустоты.",
+                "&7С воздухом: полная замена блоков из схемы."
+            ), click -> {
+                this.command(pl, "pasteair", id, ar.pasteAir ? "off" : "on");
+                this.arena(pl, id);
+            });
+        m.button(38, Material.PISTON, "&6Смещение схематики / постройки", List.of(
+            "&7Сдвинуть схематику и приват в мире",
+            "&7Вверх, вниз, влево, вправо, вперед, назад",
+            "&7на указанное количество блоков.",
+            "&aЛандшафт старого места восстанавливается,",
+            "&aа схема плавно переносится на новое место.",
+            "&eНажмите, чтобы открыть меню управления"
+        ), click -> {
+            this.moveMenu(pl, id, 1);
+        });
         this.back(m, pl, () -> this.main(pl, 0));
+        pl.openInventory(m.inventory);
+    }
+
+    public static String getFacingName(Player player) {
+        if (player == null) return "Неизвестно";
+        float yaw = (player.getLocation().getYaw() % 360 + 360) % 360;
+        if (yaw >= 45 && yaw < 135) return "Запад (-X)";
+        if (yaw >= 135 && yaw < 225) return "Север (-Z)";
+        if (yaw >= 225 && yaw < 315) return "Восток (+X)";
+        return "Юг (+Z)";
+    }
+
+    public void moveMenu(Player pl, String id, int step) {
+        Model.Arena ar = this.e.c.findArena(id);
+        if (ar == null) {
+            this.main(pl, 0);
+            return;
+        }
+        int validStep = Math.max(1, Math.min(step, 100));
+        Menu m = this.menu(pl, "Смещение • " + ar.name);
+        Model.Box box = ar.box();
+
+        String facing = getFacingName(pl);
+        List<String> infoLore = new ArrayList<>();
+        if (box != null) {
+            infoLore.add("&7Координаты: &f[" + box.x1() + ", " + box.y1() + ", " + box.z1() + "] — [" + box.x2() + ", " + box.y2() + ", " + box.z2() + "]");
+            infoLore.add("&7Размер: &f" + (box.x2() - box.x1() + 1) + "×" + (box.y2() - box.y1() + 1) + "×" + (box.z2() - box.z1() + 1));
+        }
+        infoLore.add("&7Схематика: &f" + (ar.schematic != null ? ar.schematic : (ar.template ? "внутренний шаблон" : "не задана")));
+        infoLore.add("&7Сундук: &f" + (ar.chest != null ? "[" + (int)ar.chest.x() + ", " + (int)ar.chest.y() + ", " + (int)ar.chest.z() + "]" : "не задан"));
+        infoLore.add("&7Взгляд игрока: &e" + facing);
+        infoLore.add("&7Текущий шаг: &a" + validStep + " &7блок(ов)");
+        m.button(4, Material.MAP, "&a" + ar.name + " &7(" + ar.id + ")", infoLore, null);
+
+        // Slot 11: ВВЕРХ (+Y)
+        m.button(11, Material.SLIME_BLOCK, "&a⬆ ВВЕРХ (+" + validStep + " Y)", List.of(
+            "&7Поднять схематику на &a" + validStep + " &7блок(ов) вверх",
+            "&7Координаты Y увеличатся на &a+" + validStep,
+            "&eНажмите для применения"
+        ), click -> {
+            this.commands.moveArena(pl, ar, 0, validStep, 0, true).whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
+                        this.moveMenu(pl, ar.id, validStep);
+                    }
+                });
+            });
+        });
+
+        // Slot 29: ВНИЗ (-Y)
+        m.button(29, Material.REDSTONE_BLOCK, "&c⬇ ВНИЗ (-" + validStep + " Y)", List.of(
+            "&7Опустить схематику на &c" + validStep + " &7блок(ов) вниз",
+            "&7Координаты Y уменьшатся на &c-" + validStep,
+            "&eНажмите для применения"
+        ), click -> {
+            this.commands.moveArena(pl, ar, 0, -validStep, 0, true).whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
+                        this.moveMenu(pl, ar.id, validStep);
+                    }
+                });
+            });
+        });
+
+        // Slot 13: ВПЕРЁД
+        int[] fDelta = Commands.getDirectionDelta(pl, "forward", validStep);
+        m.button(13, Material.EMERALD_BLOCK, "&a🔼 ВПЕРЁД (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть схематику вперёд по вашему взгляду",
+            "&7Направление: &e" + facing,
+            "&7Смещение: &f[dx=" + fDelta[0] + ", dz=" + fDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "forward", validStep);
+            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
+                        this.moveMenu(pl, ar.id, validStep);
+                    }
+                });
+            });
+        });
+
+        // Slot 21: ВЛЕВО
+        int[] lDelta = Commands.getDirectionDelta(pl, "left", validStep);
+        m.button(21, Material.LAPIS_BLOCK, "&b⬅ ВЛЕВО (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть схематику влево от вашего взгляда",
+            "&7Смещение: &f[dx=" + lDelta[0] + ", dz=" + lDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "left", validStep);
+            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
+                        this.moveMenu(pl, ar.id, validStep);
+                    }
+                });
+            });
+        });
+
+        // Slot 22: Текущий шаг / Центр
+        m.button(22, Material.COMPASS, "&eТекущий шаг: &6" + validStep + " &eблок(ов)", List.of(
+            "&7Смещение при каждом клике: &6" + validStep + " &7бл.",
+            "&7ЛКМ: ввести свой шаг в чат"
+        ), click -> {
+            this.prompt(pl, "Введите количество блоков для шага (1-100)", input -> {
+                try {
+                    int customStep = Integer.parseInt(input.trim());
+                    if (customStep >= 1 && customStep <= 100) {
+                        this.moveMenu(pl, ar.id, customStep);
+                        return;
+                    }
+                    pl.sendMessage(Messages.color("&cЧисло должно быть от 1 до 100"));
+                } catch (Exception ex) {
+                    pl.sendMessage(Messages.color("&cНекорректное число: " + input));
+                }
+                this.moveMenu(pl, ar.id, validStep);
+            });
+        });
+
+        // Slot 23: ВПРАВО
+        int[] rDelta = Commands.getDirectionDelta(pl, "right", validStep);
+        m.button(23, Material.LAPIS_BLOCK, "&b➡ ВПРАВО (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть схематику вправо от вашего взгляда",
+            "&7Смещение: &f[dx=" + rDelta[0] + ", dz=" + rDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "right", validStep);
+            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
+                        this.moveMenu(pl, ar.id, validStep);
+                    }
+                });
+            });
+        });
+
+        // Slot 31: НАЗАД
+        int[] bDelta = Commands.getDirectionDelta(pl, "back", validStep);
+        m.button(31, Material.EMERALD_BLOCK, "&a🔽 НАЗАД (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть схематику назад против вашего взгляда",
+            "&7Смещение: &f[dx=" + bDelta[0] + ", dz=" + bDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "back", validStep);
+            this.commands.moveArena(pl, ar, d[0], d[1], d[2], true).whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (pl.isOnline() && pl.getOpenInventory().getTopInventory().getHolder() instanceof Menu) {
+                        this.moveMenu(pl, ar.id, validStep);
+                    }
+                });
+            });
+        });
+
+        // Step presets: Row 4
+        m.button(37, validStep == 1 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 1 ? "&a✔ " : "&7") + "Шаг: 1 блок", List.of("&7Сдвиг по 1 блоку"), click -> this.moveMenu(pl, ar.id, 1));
+        m.button(38, validStep == 2 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 2 ? "&a✔ " : "&7") + "Шаг: 2 блока", List.of("&7Сдвиг по 2 блока"), click -> this.moveMenu(pl, ar.id, 2));
+        m.button(39, validStep == 5 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 5 ? "&a✔ " : "&7") + "Шаг: 5 блоков", List.of("&7Сдвиг по 5 блоков"), click -> this.moveMenu(pl, ar.id, 5));
+        m.button(40, validStep == 10 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 10 ? "&a✔ " : "&7") + "Шаг: 10 блоков", List.of("&7Сдвиг по 10 блоков"), click -> this.moveMenu(pl, ar.id, 10));
+        m.button(41, Material.NAME_TAG, "&eСвой шаг (в чат)", List.of("&7Задать точное количество блоков"), click -> {
+            this.prompt(pl, "Введите шаг сдвига в блоках (1-100)", input -> {
+                try {
+                    int s = Integer.parseInt(input.trim());
+                    if (s >= 1 && s <= 100) {
+                        this.moveMenu(pl, ar.id, s);
+                        return;
+                    }
+                } catch (Exception ignored) {}
+                this.moveMenu(pl, ar.id, validStep);
+            });
+        });
+
+        // Re-paste on current location: Slot 49
+        m.button(49, Material.STRUCTURE_BLOCK, "&eПеревставить схему здесь", List.of(
+            "&7Принудительно обновить блоки схемы",
+            "&7на текущих координатах региона",
+            "&7Режим воздуха: " + (ar.pasteAir ? "&aВКЛ" : "&cВЫКЛ")
+        ), click -> {
+            this.command(pl, "schematic", "paste", ar.id);
+            this.moveMenu(pl, ar.id, validStep);
+        });
+
+        // Back to Arena: Slot 45
+        this.back(m, pl, () -> this.arena(pl, ar.id));
         pl.openInventory(m.inventory);
     }
 

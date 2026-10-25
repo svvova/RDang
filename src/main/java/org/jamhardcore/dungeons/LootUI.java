@@ -40,6 +40,7 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.Inventory;
@@ -164,14 +165,34 @@ implements Listener {
                 }
                 Model.Reward fresh = this.rewards.fresh(chest.reward);
                 if (fresh != null) {
-                    this.rewards.notifyComplete(fresh);
-                    this.open(player, fresh, false);
+                    if (fresh.complete()) {
+                        player.closeInventory();
+                        player.sendMessage(Messages.color("&aВсе награды получены! Данж исчезнет через 1 минуту."));
+                        this.rewards.notifyComplete(fresh);
+                    } else {
+                        this.rewards.notifyComplete(fresh);
+                        this.open(player, fresh, false);
+                    }
                 }
             }
             catch (RuntimeException error) {
                 this.failed(player, chest.reward, error);
             }
         });
+    }
+
+    @EventHandler(priority=EventPriority.MONITOR)
+    public void close(InventoryCloseEvent event) {
+        if (!(event.getInventory().getHolder() instanceof Chest chest)) {
+            return;
+        }
+        if (chest.preview) {
+            return;
+        }
+        Model.Reward reward = this.rewards.fresh(chest.reward);
+        if (reward != null && reward.complete()) {
+            this.rewards.notifyComplete(reward);
+        }
     }
 
     @EventHandler(priority=EventPriority.HIGHEST)

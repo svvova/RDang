@@ -16,6 +16,7 @@
 package org.jamhardcore.dungeons;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
@@ -57,12 +58,7 @@ implements AutoCloseable {
         }
         boolean automatic = PlacementService.automatic(arena, site);
         if (!automatic) {
-            try {
-                return CompletableFuture.completedFuture(this.engine.spawn(id, "static".equalsIgnoreCase(site) ? null : site, test, actor));
-            }
-            catch (Exception ex2) {
-                return CompletableFuture.failedFuture(ex2);
-            }
+            return this.engine.spawnAtAsync(id, "static".equalsIgnoreCase(site) ? null : site, test, actor, null);
         }
         if (!arena.template) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("\u0414\u043b\u044f \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u043e\u0433\u043e \u0440\u0430\u0437\u043c\u0435\u0449\u0435\u043d\u0438\u044f \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0445\u0435\u043c\u0443 \u0438\u043b\u0438 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0435 \u0448\u0430\u0431\u043b\u043e\u043d"));
@@ -91,6 +87,101 @@ implements AutoCloseable {
         return result;
     }
 
+    public CompletableFuture<Model.Session> spawnNear(String id, Location center, int minRadius, int maxRadius, boolean test, String actor) {
+        Model.Arena arena = this.engine.c.arenas.get(id);
+        if (arena == null) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Нет арены " + id));
+        }
+        if (!arena.template) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Для размещения выберите схему"));
+        }
+        if (this.pending.contains(id) || this.engine.sessions.containsKey(id)) {
+            return CompletableFuture.failedFuture(new IllegalArgumentException("Арена уже размещается или активна"));
+        }
+        CompletableFuture<Model.Session> result = new CompletableFuture<Model.Session>();
+        this.pending.add(id);
+        this.requests.add(result);
+        result.whenComplete((s, ex) -> {
+            this.pending.remove(id);
+            this.requests.remove(result);
+        });
+        Model.Arena snapshot = Json.copy(arena, Model.Arena.class);
+        this.attemptNear(snapshot, center, minRadius, maxRadius, test, actor, result, 0, "поиск места");
+        return result;
+    }
+
+    private void attemptNear(Model.Arena arena, Location center, int minRadius, int maxRadius, boolean test, String actor, CompletableFuture<Model.Session> result, int n, String last) {
+        if (this.closed || result.isDone()) return;
+        if (n >= 32) {
+            result.completeExceptionally(new IllegalStateException("Не удалось найти место рядом за " + n + " попыток: " + last));
+            return;
+        }
+        try {
+            World world = center.getWorld();
+            int[] offset = PlacementService.sample(this.random, minRadius, maxRadius);
+            int x = center.getBlockX() + offset[0];
+            int z = center.getBlockZ() + offset[1];
+            Model.Box shape = arena.box();
+            int width = shape.x2() - shape.x1() + 1;
+            int length = shape.z2() - shape.z1() + 1;
+
+            if (!world.getWorldBorder().isInside(new Location(world, (double)x, 64.0, (double)z)) || !world.getWorldBorder().isInside(new Location(world, (double)(x + width), 64.0, (double)(z + length)))) {
+                this.retryNear(arena, center, minRadius, maxRadius, test, actor, result, n, "граница мира");
+                return;
+            }
+
+            ArrayList<CompletableFuture<?>> chunks = new ArrayList<>();
+            for (int cx = x - 16 >> 4; cx <= x + width + 16 >> 4; ++cx) {
+                for (int cz = z - 16 >> 4; cz <= z + length + 16 >> 4; ++cz) {
+                    chunks.add(world.getChunkAtAsync(cx, cz, true));
+                }
+            }
+
+            CompletableFuture.allOf(chunks.toArray(CompletableFuture[]::new)).whenComplete((unused, error) -> {
+                if (this.closed) return;
+                Bukkit.getScheduler().runTask(this.plugin, () -> {
+                    if (this.closed || result.isDone()) return;
+                    try {
+                        if (error != null) throw new IllegalStateException("ошибка загрузки чанков", error);
+                        Model.Point anchor = null;
+                        Rejected lastRejected = null;
+                        int[][] offsets = new int[][]{{0, 0}, {16, 0}, {-16, 0}, {0, 16}, {0, -16}, {16, 16}, {-16, -16}};
+                        for (int[] off : offsets) {
+                            try {
+                                anchor = this.candidate(arena, world, x + off[0], z + off[1], n);
+                                break;
+                            } catch (Rejected rej) {
+                                lastRejected = rej;
+                            }
+                        }
+                        if (anchor == null) {
+                            throw lastRejected != null ? lastRejected : new Rejected("не найдено подходящее место");
+                        }
+                        this.engine.spawnAtAsync(arena.id, null, test, actor, anchor).whenComplete((session, spawnErr) -> {
+                            if (spawnErr != null) {
+                                this.fail(arena, result, spawnErr instanceof Exception ? (Exception)spawnErr : new RuntimeException(spawnErr));
+                            } else {
+                                result.complete(session);
+                            }
+                        });
+                    } catch (Rejected ex) {
+                        this.retryNear(arena, center, minRadius, maxRadius, test, actor, result, n, ex.getMessage());
+                    } catch (Exception ex) {
+                        this.fail(arena, result, ex);
+                    }
+                });
+            });
+        } catch (Exception ex) {
+            this.fail(arena, result, ex);
+        }
+    }
+
+    private void retryNear(Model.Arena a, Location center, int min, int max, boolean test, String actor, CompletableFuture<Model.Session> result, int n, String reason) {
+        if (!this.closed) {
+            Bukkit.getScheduler().runTaskLater(this.plugin, () -> this.attemptNear(a, center, min, max, test, actor, result, n + 1, reason), 1L);
+        }
+    }
+
     static boolean automatic(Model.Arena arena, String site) {
         return "random".equalsIgnoreCase(site) || site == null && arena.template && arena.placement != Model.Placement.STATIC;
     }
@@ -108,8 +199,9 @@ implements AutoCloseable {
         if (this.closed || result.isDone()) {
             return;
         }
-        if (n >= this.engine.c.main().getInt("random-placement.attempts", 64)) {
-            result.completeExceptionally(new IllegalStateException("\u041d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e \u043c\u0435\u0441\u0442\u043e \u0434\u043b\u044f " + arena.id + " \u0437\u0430 " + n + " \u043f\u043e\u043f\u044b\u0442\u043e\u043a: " + last + ". \u041f\u0440\u043e\u0432\u0435\u0440\u044f\u044e\u0442\u0441\u044f \u0441\u043b\u0443\u0447\u0430\u0439\u043d\u044b\u0435 \u043a\u043e\u043e\u0440\u0434\u0438\u043d\u0430\u0442\u044b, \u0430 \u043d\u0435 \u0442\u043e\u0447\u043a\u0430 A. \u0414\u043b\u044f \u0432\u0441\u0442\u0430\u0432\u043a\u0438 \u0432 A: /jd schematic paste " + arena.id));
+        int maxAttempts = Math.max(128, this.engine.c.main().getInt("random-placement.attempts", 128));
+        if (n >= maxAttempts) {
+            result.completeExceptionally(new IllegalStateException("Не найдено место для " + arena.id + " за " + n + " попыток: " + last + ". Проверяются случайные координаты, а не точка A. Для вставки в A: /jd schematic paste " + arena.id));
             return;
         }
         try {
@@ -132,7 +224,11 @@ implements AutoCloseable {
                 this.retry(arena, test, actor, result, n, "\u0433\u0440\u0430\u043d\u0438\u0446\u0430 \u043c\u0438\u0440\u0430");
                 return;
             }
-            List<String> allowedBiomes = arena.biomes.isEmpty() ? this.engine.c.themeBiomes(arena.theme) : arena.biomes;
+            List<String> allowedBiomes = arena.biomes.isEmpty()
+                    ? (arena.kind == Model.Kind.PVP && arena.placement == Model.Placement.GROUND
+                        ? List.of("PLAINS", "SUNFLOWER_PLAINS", "SAVANNA", "MEADOW", "FOREST", "BIRCH_FOREST")
+                        : this.engine.c.themeBiomes(arena.theme))
+                    : arena.biomes;
             if (!allowedBiomes.isEmpty()) {
                 String currentBiome;
                 try {
@@ -176,8 +272,22 @@ implements AutoCloseable {
                         if (error != null) {
                             throw new IllegalStateException("\u043e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u0447\u0430\u043d\u043a\u043e\u0432", (Throwable)error);
                         }
-                        Model.Point anchor = this.candidate(arena, world, x, z);
-                        Model.Arena shifted = arena.at(anchor);
+                        Model.Point anchor = null;
+                        Rejected lastRejected = null;
+                        int[][] offsets = new int[][]{{0, 0}, {16, 0}, {-16, 0}, {0, 16}, {0, -16}, {16, 16}, {-16, -16}};
+                        for (int[] off : offsets) {
+                            try {
+                                anchor = this.candidate(arena, world, x + off[0], z + off[1], n);
+                                break;
+                            } catch (Rejected rej) {
+                                lastRejected = rej;
+                            }
+                        }
+                        if (anchor == null) {
+                            throw lastRejected != null ? lastRejected : new Rejected("не найдено подходящее место");
+                        }
+                        final Model.Point finalAnchor = anchor;
+                        Model.Arena shifted = arena.at(finalAnchor);
 
                         if (this.engine.coreProtect != null && this.engine.coreProtect.isAvailable()) {
                             List<Block> samples = this.engine.coreProtect.collectSampleBlocks(world, shifted.box());
@@ -189,17 +299,23 @@ implements AutoCloseable {
                                         this.retry(arena, test, actor, result, n, "\u043f\u043e\u0441\u0442\u0440\u043e\u0439\u043a\u0438 \u0438\u0433\u0440\u043e\u043a\u043e\u0432 (CoreProtect)");
                                         return;
                                     }
-                                    try {
-                                        Model.Session session = this.engine.spawnAt(arena.id, null, test, actor, anchor);
-                                        result.complete(session);
-                                    } catch (Exception ex) {
-                                        this.fail(arena, result, ex);
-                                    }
+                                    this.engine.spawnAtAsync(arena.id, null, test, actor, finalAnchor).whenComplete((session, spawnErr) -> {
+                                        if (spawnErr != null) {
+                                            this.fail(arena, result, spawnErr instanceof Exception ? (Exception)spawnErr : new RuntimeException(spawnErr));
+                                        } else {
+                                            result.complete(session);
+                                        }
+                                    });
                                 });
                             });
                         } else {
-                            Model.Session session = this.engine.spawnAt(arena.id, null, test, actor, anchor);
-                            result.complete(session);
+                            this.engine.spawnAtAsync(arena.id, null, test, actor, finalAnchor).whenComplete((session, spawnErr) -> {
+                                if (spawnErr != null) {
+                                    this.fail(arena, result, spawnErr instanceof Exception ? (Exception)spawnErr : new RuntimeException(spawnErr));
+                                } else {
+                                    result.complete(session);
+                                }
+                            });
                         }
                     }
                     catch (Rejected ex) {
@@ -232,6 +348,10 @@ implements AutoCloseable {
     }
 
     Model.Point candidate(Model.Arena a, World world, int x, int z) throws Exception {
+        return this.candidate(a, world, x, z, 0);
+    }
+
+    Model.Point candidate(Model.Arena a, World world, int x, int z, int n) throws Exception {
         int y;
         Model.Box original = a.box();
         int width = original.x2() - original.x1() + 1;
@@ -241,12 +361,22 @@ implements AutoCloseable {
         int high = Integer.MIN_VALUE;
         int dry = 0;
         int samples = 0;
+        List<Integer> sampledHeights = new ArrayList<Integer>();
         for (int dx : PlacementService.axisSamples(width)) {
             for (int dz : PlacementService.axisSamples(length)) {
                 int y2 = PlacementService.getGroundHeight(world, x + dx, z + dz);
                 Block ground = world.getBlockAt(x + dx, y2, z + dz);
+                int checkY = y2;
+                while (!ground.getType().isSolid() && checkY > world.getMinHeight() && y2 - checkY < 6) {
+                    checkY--;
+                    ground = world.getBlockAt(x + dx, checkY, z + dz);
+                }
+                if (ground.getType().isSolid()) {
+                    y2 = checkY;
+                }
                 low = Math.min(low, y2);
                 high = Math.max(high, y2);
+                sampledHeights.add(y2);
                 ++samples;
                 if (!ground.getType().isSolid() || !PlacementService.natural(ground.getType())) continue;
                 ++dry;
@@ -289,10 +419,33 @@ implements AutoCloseable {
                 throw new Rejected("\u0432\u043e\u0434\u043e\u0451\u043c \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u043c\u0435\u043b\u043a\u0438\u0439 \u0434\u043b\u044f \u043f\u043e\u0434\u0432\u043e\u0434\u043d\u043e\u0433\u043e \u0434\u0430\u043d\u0436\u0430");
             }
             default: {
-                if (high - low > this.engine.c.main().getInt("random-placement.max-ground-slope", 4) || (double)dry / (double)samples < this.engine.c.main().getDouble("random-placement.min-ground-coverage", 0.8)) {
-                    throw new Rejected("\u043d\u0435\u0440\u043e\u0432\u043d\u0430\u044f \u0438\u043b\u0438 \u043d\u0435\u043f\u043e\u0434\u0445\u043e\u0434\u044f\u0449\u0430\u044f \u043f\u043e\u0432\u0435\u0440\u0445\u043d\u043e\u0441\u0442\u044c (\u043f\u0435\u0440\u0435\u043f\u0430\u0434 " + (high - low) + ", \u0434\u043e\u043f\u0443\u0441\u0442\u0438\u043c\u043e " + this.engine.c.main().getInt("random-placement.max-ground-slope", 4) + "; \u0441\u0443\u0445\u0430\u044f \u043e\u043f\u043e\u0440\u0430 " + Math.round(100.0 * (double)dry / (double)samples) + "%)");
+                int baseSlope = this.engine.c.main().getInt("random-placement.max-ground-slope", 8);
+                double baseCoverage = this.engine.c.main().getDouble("random-placement.min-ground-coverage", 0.65);
+                int allowedSlope = baseSlope;
+                double allowedCoverage = baseCoverage;
+                if (n > 8) {
+                    allowedSlope = Math.min(16, baseSlope + (n - 8));
+                    allowedCoverage = Math.max(0.55, baseCoverage - (n - 8) * 0.01);
                 }
-                y = high + 1;
+                if (n > 25) {
+                    allowedSlope = Math.min(24, allowedSlope + (n - 25));
+                    allowedCoverage = Math.max(0.50, allowedCoverage - (n - 25) * 0.005);
+                }
+                if (high - low > allowedSlope || (double)dry / (double)samples < allowedCoverage) {
+                    throw new Rejected("неровная или неподходящая поверхность (перепад " + (high - low) + ", допустимо " + allowedSlope + "; сухая опора " + Math.round(100.0 * (double)dry / (double)samples) + "%, нужно " + Math.round(100.0 * allowedCoverage) + "%)");
+                }
+                int groundOffset = this.engine.c.main().getInt("random-placement.ground-offset", -1);
+                Collections.sort(sampledHeights);
+                int stableLow = sampledHeights.isEmpty() ? low : sampledHeights.get(0);
+                if (sampledHeights.size() >= 4) {
+                    int p5Index = Math.max(0, sampledHeights.size() / 20);
+                    stableLow = Math.min(sampledHeights.get(p5Index), sampledHeights.get(0) + 1);
+                }
+                // Привязываемся строго к устойчивой нижней точке рельефа, чтобы постройка не парила в воздухе
+                y = Math.max(world.getMinHeight() + 2, stableLow + groundOffset);
+                if (y + height >= world.getMaxHeight()) {
+                    y = Math.max(world.getMinHeight() + 5, world.getMaxHeight() - height - 2);
+                }
             }
         }
         Model.Point anchor = new Model.Point(world.getName(), x, y, z, 0.0f, 0.0f);
@@ -340,7 +493,12 @@ implements AutoCloseable {
             }
         }
         if (PlacementService.exitNear(shifted.box()) == null) {
-            throw new Rejected("\u043d\u0435\u0442 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0433\u043e \u0441\u0443\u0445\u043e\u0433\u043e \u0432\u044b\u0445\u043e\u0434\u0430 \u0440\u044f\u0434\u043e\u043c");
+            Location fallbackLoc = Engine.findSafeExit(shifted);
+            if (fallbackLoc != null) {
+                shifted.exit = Model.Point.of(fallbackLoc);
+            } else {
+                throw new Rejected("\u043d\u0435\u0442 \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0433\u043e \u0441\u0443\u0445\u043e\u0433\u043e \u0432\u044b\u0445\u043e\u0434\u0430 \u0440\u044f\u0434\u043e\u043c");
+            }
         }
         return anchor;
     }
@@ -356,7 +514,84 @@ implements AutoCloseable {
 
     static boolean natural(Material m) {
         String n = m.name();
-        return m.isAir() || Set.of("STONE", "DIRT", "GRASS_BLOCK", "SAND", "RED_SAND", "GRAVEL", "CLAY", "WATER", "SNOW", "SNOW_BLOCK", "ICE", "PACKED_ICE", "BLUE_ICE", "DEEPSLATE", "TUFF", "CALCITE", "GRANITE", "ANDESITE", "DIORITE", "PODZOL", "MYCELIUM", "MUD", "MUDDY_MANGROVE_ROOTS", "MANGROVE_ROOTS", "ROOTED_DIRT", "COARSE_DIRT", "BEDROCK", "DRIPSTONE_BLOCK", "SHORT_GRASS", "TALL_GRASS", "FERN", "LARGE_FERN", "DEAD_BUSH", "SEAGRASS", "TALL_SEAGRASS", "KELP", "KELP_PLANT", "LILY_PAD", "VINE", "CACTUS", "SUGAR_CANE", "MOSS_BLOCK", "MOSS_CARPET", "NETHERRACK", "SOUL_SAND", "SOUL_SOIL", "BASALT", "BLACKSTONE", "END_STONE").contains(n) || n.endsWith("_ORE") || n.endsWith("_LEAVES") || n.endsWith("_LOG") || n.endsWith("_FLOWER") || n.endsWith("_CORAL") || n.endsWith("_CORAL_BLOCK") || n.endsWith("_CORAL_FAN");
+        return m.isAir() || Set.of(
+            "STONE", "DIRT", "GRASS_BLOCK", "SAND", "RED_SAND", "GRAVEL", "CLAY", "WATER",
+            "SNOW", "SNOW_BLOCK", "ICE", "PACKED_ICE", "BLUE_ICE", "DEEPSLATE", "TUFF",
+            "CALCITE", "GRANITE", "ANDESITE", "DIORITE", "PODZOL", "MYCELIUM", "MUD",
+            "MUDDY_MANGROVE_ROOTS", "MANGROVE_ROOTS", "ROOTED_DIRT", "COARSE_DIRT", "BEDROCK",
+            "DRIPSTONE_BLOCK", "SHORT_GRASS", "TALL_GRASS", "FERN", "LARGE_FERN", "DEAD_BUSH",
+            "SEAGRASS", "TALL_SEAGRASS", "KELP", "KELP_PLANT", "LILY_PAD", "VINE", "CACTUS",
+            "SUGAR_CANE", "MOSS_BLOCK", "MOSS_CARPET", "NETHERRACK", "SOUL_SAND", "SOUL_SOIL",
+            "BASALT", "BLACKSTONE", "END_STONE", "GLOW_LICHEN", "SCULK", "SCULK_VEIN",
+            "SCULK_CATALYST", "SCULK_SHRIEKER", "SCULK_SENSOR", "AMETHYST_BLOCK", "BUDDING_AMETHYST",
+            "POINTED_DRIPSTONE", "MUSHROOM_STEM", "BROWN_MUSHROOM_BLOCK", "RED_MUSHROOM_BLOCK",
+            "BROWN_MUSHROOM", "RED_MUSHROOM", "PALE_MOSS_BLOCK", "PALE_MOSS_CARPET",
+            "PALE_HANGING_MOSS", "HANGING_ROOTS", "SPORE_BLOSSOM", "AZALEA", "FLOWERING_AZALEA",
+            "BIG_DRIPLEAF", "BIG_DRIPLEAF_STEM", "SMALL_DRIPLEAF", "BAMBOO", "BAMBOO_SAPLING",
+            "PACKED_MUD", "MUD_BRICKS"
+        ).contains(n) || n.endsWith("TERRACOTTA") || n.contains("SANDSTONE") || n.endsWith("_NYLIUM") || n.endsWith("_ORE") || n.endsWith("_LEAVES") || n.endsWith("_LOG") || n.endsWith("_WOOD") || n.startsWith("STRIPPED_") || n.endsWith("_FLOWER") || n.endsWith("_CORAL") || n.endsWith("_CORAL_BLOCK") || n.endsWith("_CORAL_FAN") || n.endsWith("_MUSHROOM");
+    }
+
+    public static boolean isTreeOrFoliage(Material m) {
+        if (m == null || m.isAir()) return false;
+        String n = m.name();
+
+        // Листва всех типов деревьев
+        if (n.endsWith("_LEAVES")) return true;
+
+        // Стволы, ветви, древесина, бревна
+        if (n.endsWith("_LOG") || n.endsWith("_WOOD") || n.startsWith("STRIPPED_")) return true;
+
+        // Корни мангровых деревьев и свисающие корни
+        if (n.equals("MANGROVE_ROOTS") || n.equals("MUDDY_MANGROVE_ROOTS") || n.equals("HANGING_ROOTS")) return true;
+
+        // Гигантские грибы и ножки грибов
+        if (n.equals("MUSHROOM_STEM") || n.equals("BROWN_MUSHROOM_BLOCK") || n.equals("RED_MUSHROOM_BLOCK") || n.equals("SHROOMLIGHT")) return true;
+
+        // Бамбук, тростник, кактусы
+        if (n.startsWith("BAMBOO") || n.equals("SUGAR_CANE") || n.equals("CACTUS")) return true;
+
+        // Лианы и свисающая растительность
+        if (n.contains("VINE") || n.contains("DRIPLEAF") || n.contains("WEEPING") || n.contains("TWISTING")) return true;
+
+        // Трава, папоротники, ковры мха, кусты, цветы
+        if (n.equals("SHORT_GRASS") || n.equals("TALL_GRASS") || n.equals("FERN") || n.equals("LARGE_FERN") || n.equals("DEAD_BUSH")) return true;
+        if (n.contains("MOSS_CARPET") || n.contains("HANGING_MOSS") || n.equals("GLOW_LICHEN") || n.equals("SPORE_BLOSSOM")) return true;
+        if (n.endsWith("_FLOWER") || n.endsWith("_SAPLING") || n.endsWith("_MUSHROOM") || n.endsWith("_FUNGUS") || n.endsWith("_PETALS") || n.endsWith("_BUSH")) return true;
+        if (n.equals("AZALEA") || n.equals("FLOWERING_AZALEA") || n.equals("LILY_PAD") || n.equals("SEAGRASS") || n.equals("TALL_SEAGRASS") || n.equals("KELP") || n.equals("KELP_PLANT")) return true;
+
+        return false;
+    }
+
+    public static boolean isGroundBlock(Material m) {
+        if (m == null || !m.isSolid()) return false;
+        if (isTreeOrFoliage(m)) return false;
+        String n = m.name();
+
+        // Терракота (Меса / Badlands)
+        if (n.endsWith("TERRACOTTA")) return true;
+
+        // Песчаники (Пустыни / Пляжи)
+        if (n.contains("SANDSTONE")) return true;
+
+        // Лед (Снежные и ледяные биомы)
+        if (n.endsWith("_ICE")) return true;
+
+        // Поверхность Незера
+        if (n.endsWith("_NYLIUM") || n.equals("NETHERRACK") || n.equals("SOUL_SAND") || n.equals("SOUL_SOIL") || n.contains("BASALT") || n.contains("BLACKSTONE")) return true;
+
+        // Поверхность Энда
+        if (n.equals("END_STONE")) return true;
+
+        // Твердая земля/трава/камень Обычного мира
+        return switch (m) {
+            case GRASS_BLOCK, DIRT, COARSE_DIRT, ROOTED_DIRT, PODZOL, MYCELIUM, FARMLAND, DIRT_PATH,
+                 SAND, RED_SAND, GRAVEL, SUSPICIOUS_SAND, SUSPICIOUS_GRAVEL,
+                 STONE, DEEPSLATE, TUFF, CALCITE, ANDESITE, DIORITE, GRANITE, DRIPSTONE_BLOCK,
+                 CLAY, MUD, PACKED_MUD, MUD_BRICKS, MOSS_BLOCK,
+                 SNOW_BLOCK, ICE -> true;
+            default -> n.contains("DIRT") || n.contains("STONE") || n.contains("DEEPSLATE") || n.contains("MUD") || n.contains("SAND") || n.contains("TUFF") || n.contains("GRANITE") || n.contains("DIORITE") || n.contains("ANDESITE") || n.contains("MOSS_BLOCK");
+        };
     }
 
     static Model.Point exitNear(Model.Box box) {
@@ -387,7 +622,7 @@ implements AutoCloseable {
                 Block b = world.getBlockAt(x, y, z);
                 Block above1 = world.getBlockAt(x, y + 1, z);
                 Block above2 = world.getBlockAt(x, y + 2, z);
-                if (b.getType().isSolid() && natural(b.getType()) && above1.isPassable() && !above1.isLiquid() && above2.isPassable() && !above2.isLiquid()) {
+                if (isGroundBlock(b.getType()) && above1.isPassable() && !above1.isLiquid() && above2.isPassable() && !above2.isLiquid()) {
                     return y;
                 }
             }
@@ -399,11 +634,45 @@ implements AutoCloseable {
             for (int y = maxY; y >= minY; --y) {
                 Block b = world.getBlockAt(x, y, z);
                 Block above = world.getBlockAt(x, y + 1, z);
-                if (b.getType().isSolid() && above.isPassable() && !above.isLiquid()) {
+                if (isGroundBlock(b.getType()) && above.isPassable() && !above.isLiquid()) {
                     return y;
                 }
             }
             return 60;
+        }
+
+        // Обычный мир: сканируем сверху вниз от поверхности, пропуская листву, стволы деревьев,
+        // ветви, тонкий снег и растительность прямо до настоящей поверхности земли (трава, земля, песок, камень, терракота и т.д.)
+        int topY = world.getHighestBlockYAt(x, z, HeightMap.WORLD_SURFACE);
+        topY = Math.min(topY, world.getMaxHeight() - 2);
+        int minY = world.getMinHeight() + 1;
+
+        for (int y = topY; y >= minY; --y) {
+            Block b = world.getBlockAt(x, y, z);
+            Material mat = b.getType();
+
+            if (mat.isAir()) continue;
+
+            // Пропускаем листву, стволы деревьев, грибы, растения и лианы
+            if (isTreeOrFoliage(mat)) continue;
+
+            // Тонкий слой снега — земля находится под ним
+            if (mat == Material.SNOW) continue;
+
+            // Если наткнулись на воду или лаву
+            if (mat == Material.WATER || mat == Material.LAVA) {
+                return y;
+            }
+
+            // Настоящая твердая поверхность биома (трава, песок, камень, глина, терракота и т.д.)
+            if (isGroundBlock(mat)) {
+                return y;
+            }
+
+            // Запасной вариант для прочих твердых природных блоков рельефа
+            if (b.getType().isSolid() && natural(mat)) {
+                return y;
+            }
         }
         return world.getHighestBlockYAt(x, z, HeightMap.MOTION_BLOCKING_NO_LEAVES);
     }

@@ -182,6 +182,7 @@ public final class Model {
         public Placement placement = Placement.GROUND;
         public List<String> worlds = new ArrayList<String>();
         public List<String> biomes = new ArrayList<String>();
+        public boolean pasteAir = true;
 
         public Box box() {
             return Box.of(this.pos1, this.pos2);
@@ -189,7 +190,7 @@ public final class Model {
 
         public Box playBox() {
             Box b = this.box();
-            return this.kind == Kind.PVE ? new Box(b.world(), b.x1(), b.y1() - 2, b.z1(), b.x2(), b.y2() + 8, b.z2()) : b;
+            return new Box(b.world(), b.x1(), b.y1() - 2, b.z1(), b.x2(), b.y2() + 8, b.z2());
         }
 
         public List<Spawn> pointsFor(int wave, String mob) {
@@ -227,6 +228,30 @@ public final class Model {
                     p.point = p.point.shift(dx, dy, dz, anchor.world);
                 }
             });
+            return a;
+        }
+
+        public Arena shift(double dx, double dy, double dz) {
+            Arena a = Json.copy(this, Arena.class);
+            if (a.pos1 != null) {
+                a.pos1 = a.pos1.shift(dx, dy, dz, a.pos1.world());
+            }
+            if (a.pos2 != null) {
+                a.pos2 = a.pos2.shift(dx, dy, dz, a.pos2.world());
+            }
+            if (a.chest != null) {
+                a.chest = a.chest.shift(dx, dy, dz, a.chest.world());
+            }
+            if (a.exit != null) {
+                a.exit = a.exit.shift(dx, dy, dz, a.exit.world());
+            }
+            if (a.points != null) {
+                a.points.forEach(p -> {
+                    if (p.point != null) {
+                        p.point = p.point.shift(dx, dy, dz, p.point.world());
+                    }
+                });
+            }
             return a;
         }
     }

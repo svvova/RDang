@@ -516,6 +516,36 @@ public final class Configs {
         this.edit("arenas", y -> y.set("arenas." + id, null));
     }
 
+    public Model.Arena findArena(String idOrName) {
+        if (idOrName == null || idOrName.isBlank()) {
+            return null;
+        }
+        String clean = idOrName.trim();
+        Model.Arena exact = this.arenas.get(clean);
+        if (exact != null) {
+            return exact;
+        }
+        for (Model.Arena candidate : this.arenas.values()) {
+            if (candidate.id.equalsIgnoreCase(clean)) {
+                return candidate;
+            }
+        }
+        for (Model.Arena candidate : this.arenas.values()) {
+            if (candidate.name != null) {
+                if (candidate.name.equalsIgnoreCase(clean)) {
+                    return candidate;
+                }
+                String stripped = Messages.stripColor(candidate.name).trim();
+                if (stripped.equalsIgnoreCase(clean)
+                        || stripped.replace(' ', '_').equalsIgnoreCase(clean)
+                        || stripped.equalsIgnoreCase(clean.replace('_', ' '))) {
+                    return candidate;
+                }
+            }
+        }
+        return null;
+    }
+
     public static void write(Path path, String text) throws Exception {
         Path tmp = path.resolveSibling(String.valueOf(path.getFileName()) + ".tmp");
         Files.writeString(tmp, (CharSequence)text, StandardCharsets.UTF_8, new OpenOption[0]);

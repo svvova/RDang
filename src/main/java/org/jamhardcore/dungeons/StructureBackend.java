@@ -1,17 +1,38 @@
-/*
- * Decompiled with CFR 0.152.
- */
 package org.jamhardcore.dungeons;
 
 import java.nio.file.Path;
-import org.jamhardcore.dungeons.Model;
-import org.jamhardcore.dungeons.SchematicCodec;
+import java.util.concurrent.CompletableFuture;
 
 interface StructureBackend {
-    public void capture(Model.Box var1, Path var2) throws Exception;
+    void capture(Model.Box var1, Path var2) throws Exception;
 
-    public void paste(SchematicCodec.Image var1, Model.Box var2) throws Exception;
+    default void paste(SchematicCodec.Image image, Model.Box box) throws Exception {
+        this.paste(image, box, true);
+    }
 
-    public void paste(Path var1, Model.Box var2) throws Exception;
+    default void paste(Path file, Model.Box box) throws Exception {
+        this.paste(file, box, true);
+    }
+
+    void paste(SchematicCodec.Image image, Model.Box box, boolean pasteAir) throws Exception;
+
+    void paste(Path file, Model.Box box, boolean pasteAir) throws Exception;
+
+    default CompletableFuture<Void> pasteAsync(SchematicCodec.Image image, Model.Box box) {
+        return this.pasteAsync(image, box, true);
+    }
+
+    default CompletableFuture<Void> pasteAsync(Path file, Model.Box box) {
+        return this.pasteAsync(file, box, true);
+    }
+
+    CompletableFuture<Void> pasteAsync(SchematicCodec.Image image, Model.Box box, boolean pasteAir);
+
+    CompletableFuture<Void> pasteAsync(Path file, Model.Box box, boolean pasteAir);
+
+    CompletableFuture<Void> captureAsync(Model.Box var1, Path var2);
+
+    void clear(Model.Box var1) throws Exception;
+
+    CompletableFuture<Void> clearAsync(Model.Box var1);
 }
-

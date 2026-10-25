@@ -40,8 +40,29 @@ integrations:
     resource: ''
 scheduling:
   enabled: false
+  # Временная зона сервера для расписания (Europe/Moscow, UTC и т.д.)
+  timezone: 'Europe/Moscow'
   # Интервальный авто-спавн (в минутах). 0 = выключен. Например: 60 = спавнить данж раз в час.
   interval-minutes: 0
+  # Отложенные и фиксированные спавны (до 10 слотов).
+  # Формат:
+  #   time: "14:30" (ежедневно в 14:30) или "+30m" (таймер отложенного спавна через 30 мин)
+  #   arena: "any" (или точный ID включенной арены)
+  #   enabled: true / false
+  # Управление через команды: /jd schedule list|add|remove|toggle|clear
+  deferred-spawns:
+    - time: '12:00'
+      arena: 'any'
+      enabled: true
+    - time: '15:00'
+      arena: 'any'
+      enabled: true
+    - time: '18:00'
+      arena: 'any'
+      enabled: true
+    - time: '21:00'
+      arena: 'any'
+      enabled: true
   pve-per-day: 2
   pve-window-start: '10:00'
   pve-window-end: '23:00'
@@ -94,11 +115,15 @@ random-placement:
   # Минимальное расстояние между несколькими одновременно активными данжами
   min-distance-between-dungeons: 300
   player-distance: 128
-  attempts: 64
+  attempts: 128
   # Шаг проверки блоков в кубоиде (3 = быстрая проверка без лагов)
   check-step: 3
-  max-ground-slope: 4
-  min-ground-coverage: 0.80
+  # Максимально допустимый перепад высот грунта под постройкой
+  max-ground-slope: 8
+  # Минимальная доля твёрдого природного грунта под постройкой (0.70 = 70%)
+  min-ground-coverage: 0.70
+  # Смещение по высоте относительно уровня земли (-1 = основание утапливается на 1 блок в грунт, чтобы пол не висел в воздухе)
+  ground-offset: -1
   air-min-height: 24
   air-max-height: 48
   # WATER: на сколько блоков основание корабля погружается под поверхность воды.

@@ -25,6 +25,7 @@
  */
 package org.jamhardcore.dungeons;
 
+import org.bukkit.block.Block;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -107,28 +108,88 @@ public final class Spawner {
                 }
                 for (Model.Spawn point : points) {
                     if (point.point == null || !a.box().contains(point.point)) {
-                        throw new IllegalArgumentException("\u0422\u043e\u0447\u043a\u0430 \u0432\u043d\u0435 \u0440\u0435\u0433\u0438\u043e\u043d\u0430: " + point.id);
+                        throw new IllegalArgumentException("Точка вне региона: " + point.id);
                     }
-                    this.checkPoint(point.point, theme.mobs.get(id));
+                    this.checkAndFixPoint(point, theme.mobs.get(id));
                 }
             }
         }
     }
 
-    private void checkPoint(Model.Point point, Model.MobSpec spec) {
+    private void checkAndFixPoint(Model.Spawn spawn, Model.MobSpec spec) {
+        Model.Point point = spawn.point;
         Location l = point.location();
         if (l == null) {
-            throw new IllegalArgumentException("\u041c\u0438\u0440 \u0442\u043e\u0447\u043a\u0438 \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d");
+            throw new IllegalArgumentException("Мир точки не загружен");
         }
         if (!l.getWorld().getWorldBorder().isInside(l)) {
-            throw new IllegalArgumentException("\u0422\u043e\u0447\u043a\u0430 \u0437\u0430 \u0433\u0440\u0430\u043d\u0438\u0446\u0435\u0439 \u043c\u0438\u0440\u0430");
-        }
-        if (l.getBlock().getType().isSolid() || l.clone().add(0.0, 1.0, 0.0).getBlock().getType().isSolid()) {
-            throw new IllegalArgumentException("\u0422\u043e\u0447\u043a\u0430 \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u0430: " + point.x() + ", " + point.y() + ", " + point.z());
+            throw new IllegalArgumentException("Точка за границей мира");
         }
         if ((spec.entity.equals("GUARDIAN") || spec.entity.equals("ELDER_GUARDIAN")) && l.getBlock().getType() != Material.WATER) {
-            throw new IllegalArgumentException("\u0421\u0442\u0440\u0430\u0436\u0443 \u043d\u0443\u0436\u043d\u0430 \u0442\u043e\u0447\u043a\u0430 \u0432 \u0432\u043e\u0434\u0435");
+            throw new IllegalArgumentException("Стражу нужна точка в воде");
         }
+        if (!l.getBlock().getType().isSolid() && !l.clone().add(0.0, 1.0, 0.0).getBlock().getType().isSolid()) {
+            return;
+        }
+        Location safe = findSafeSpawnLocation(l);
+        if (safe != null) {
+            spawn.point = Model.Point.of(safe);
+            return;
+        }
+        l.getBlock().setType(Material.AIR, false);
+        l.clone().add(0.0, 1.0, 0.0).getBlock().setType(Material.AIR, false);
+    }
+
+    private void checkPoint(Model.Point point, Model.MobSpec spec) {
+        Location l = point.location();
+        if (l == null || !l.getWorld().getWorldBorder().isInside(l)) return;
+        if ((spec.entity.equals("GUARDIAN") || spec.entity.equals("ELDER_GUARDIAN")) && l.getBlock().getType() != Material.WATER) {
+            throw new IllegalArgumentException("Стражу нужна точка в воде");
+        }
+        if (l.getBlock().getType().isSolid() || l.clone().add(0.0, 1.0, 0.0).getBlock().getType().isSolid()) {
+            Location safe = findSafeSpawnLocation(l);
+            if (safe == null) {
+                l.getBlock().setType(Material.AIR, false);
+                l.clone().add(0.0, 1.0, 0.0).getBlock().setType(Material.AIR, false);
+            }
+        }
+    }
+
+    public static Location findSafeSpawnLocation(Location origin) {
+        if (origin == null || origin.getWorld() == null) return null;
+        World w = origin.getWorld();
+        int x = origin.getBlockX();
+        int y = origin.getBlockY();
+        int z = origin.getBlockZ();
+
+        int[] yOffsets = new int[]{1, 2, -1, 3, -2};
+        for (int dy : yOffsets) {
+            int checkY = y + dy;
+            if (checkY <= w.getMinHeight() || checkY >= w.getMaxHeight() - 2) continue;
+            Block feet = w.getBlockAt(x, checkY, z);
+            Block head = w.getBlockAt(x, checkY + 1, z);
+            Block floor = w.getBlockAt(x, checkY - 1, z);
+            if (!feet.getType().isSolid() && !head.getType().isSolid() && floor.getType().isSolid()) {
+                return new Location(w, x + 0.5, checkY, z + 0.5, origin.getYaw(), origin.getPitch());
+            }
+        }
+
+        int[][] horizontal = new int[][]{{1,0}, {-1,0}, {0,1}, {0,-1}, {1,1}, {-1,-1}, {1,-1}, {-1,1}};
+        for (int[] h : horizontal) {
+            for (int dy = 0; dy <= 2; dy++) {
+                int checkX = x + h[0];
+                int checkY = y + dy;
+                int checkZ = z + h[1];
+                if (checkY <= w.getMinHeight() || checkY >= w.getMaxHeight() - 2) continue;
+                Block feet = w.getBlockAt(checkX, checkY, checkZ);
+                Block head = w.getBlockAt(checkX, checkY + 1, checkZ);
+                Block floor = w.getBlockAt(checkX, checkY - 1, checkZ);
+                if (!feet.getType().isSolid() && !head.getType().isSolid() && floor.getType().isSolid()) {
+                    return new Location(w, checkX + 0.5, checkY, checkZ + 0.5, origin.getYaw(), origin.getPitch());
+                }
+            }
+        }
+        return null;
     }
 
     public void wave(Model.Session s, int wave, int globalLiving) {
@@ -173,10 +234,16 @@ public final class Spawner {
     private Entity spawnOne(Model.Session s, String preset, Model.Point point, int wave, int ordinal) {
         Model.MobSpec spec = s.theme.mobs.get(preset);
         if (spec == null || List.of("CAMEL_HUSK", "CREEPER").contains(spec.entity)) {
-            throw new IllegalStateException("\u041c\u043e\u0431 \u043d\u0435 \u0440\u0430\u0437\u0440\u0435\u0448\u0451\u043d \u0432 \u0442\u0435\u043c\u0435: " + preset);
+            throw new IllegalStateException("Моб не разрешён в теме: " + preset);
         }
         this.checkPoint(point, spec);
-        Entity entity = Objects.requireNonNull(point.location()).getWorld().spawn(point.location(), Objects.requireNonNull(EntityType.valueOf((String)spec.entity).getEntityClass()), false, mob -> this.configure((Entity)mob, s, spec, preset, point, wave, ordinal));
+        Location targetLoc = point.location();
+        Location safe = findSafeSpawnLocation(targetLoc);
+        if (safe != null) {
+            targetLoc = safe;
+        }
+        final Location finalSpawn = targetLoc != null ? targetLoc : point.location();
+        Entity entity = Objects.requireNonNull(finalSpawn.getWorld()).spawn(finalSpawn, Objects.requireNonNull(EntityType.valueOf((String)spec.entity).getEntityClass()), false, mob -> this.configure((Entity)mob, s, spec, preset, point, wave, ordinal));
         if (!entity.isValid()) {
             throw new IllegalStateException("\u0421\u043f\u0430\u0432\u043d \u043e\u0442\u043c\u0435\u043d\u0451\u043d \u0434\u0440\u0443\u0433\u0438\u043c \u043f\u043b\u0430\u0433\u0438\u043d\u043e\u043c: " + preset);
         }

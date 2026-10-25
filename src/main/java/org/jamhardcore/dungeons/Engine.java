@@ -30,12 +30,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.block.data.BlockData;
@@ -66,7 +69,7 @@ import org.jamhardcore.dungeons.WorldGuardRegions;
 public final class Engine {
     public final Map<String, Model.Session> sessions = new LinkedHashMap<String, Model.Session>();
     private final Map<UUID, String> buildingEditors = new HashMap<UUID, String>();
-    private final JavaPlugin p;
+    public final JavaPlugin p;
     public final Configs c;
     public final Store db;
     public final Messages msg;
@@ -77,6 +80,9 @@ public final class Engine {
     public final WorldGuardRegions regions;
     public final CoreProtectHook coreProtect;
     public final PlacementService placement;
+    public EventSchedule schedule;
+    public record ManualPaste(String id, String world, Model.Box box, String backupPath, long timestamp) {}
+    public final java.util.Deque<ManualPaste> manualPastes = new java.util.ArrayDeque<>();
     final Combat combat;
     BiConsumer<Model.Session, Integer> spawnWave;
 
@@ -101,7 +107,8 @@ public final class Engine {
         this.spawnWave = (session, wave) -> this.mobs.wave((Model.Session)session, (int)wave, this.totalLiving());
         this.rewards.completion(reward -> {
             for (Model.Session session : new ArrayList<Model.Session>(this.sessions.values())) {
-                if (!reward.id.equals(session.rewardId) || session.phase != Model.Phase.CLAIMED) continue;
+                if (!reward.id.equals(session.rewardId)) continue;
+                session.cleanupSeconds = 60;
                 this.beginCleanup(session, System.currentTimeMillis());
             }
         });
@@ -197,6 +204,52 @@ public final class Engine {
         return s.test ? player.hasPermission("jamdungeons.admin") && !player.isDead() : this.hooks.canPlay(player);
     }
 
+    public Model.Point findChest(Model.Arena a) {
+        if (a == null || a.pos1 == null || a.pos2 == null) {
+            return null;
+        }
+        Model.Box b = a.box();
+        World world = Bukkit.getWorld(b.world());
+        if (world == null) {
+            return null;
+        }
+        int minX = Math.min(b.x1(), b.x2()) - 1;
+        int maxX = Math.max(b.x1(), b.x2()) + 1;
+        int minY = Math.max(world.getMinHeight(), Math.min(b.y1(), b.y2()) - 2);
+        int maxY = Math.min(world.getMaxHeight() - 1, Math.max(b.y1(), b.y2()) + 2);
+        int minZ = Math.min(b.z1(), b.z2()) - 1;
+        int maxZ = Math.max(b.z1(), b.z2()) + 1;
+
+        for (int y = minY; y <= maxY; y++) {
+            for (int x = minX; x <= maxX; x++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    Block block = world.getBlockAt(x, y, z);
+                    Material mat = block.getType();
+                    if (mat == Material.CHEST || mat == Material.TRAPPED_CHEST || mat == Material.BARREL || block.getBlockData() instanceof Chest) {
+                        return Model.Point.of(block.getLocation());
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    public void ensureContainsChest(Model.Arena a) {
+        if (a == null || a.chest == null || a.pos1 == null || a.pos2 == null) return;
+        Model.Box b = a.box();
+        if (!b.contains(a.chest)) {
+            int cx = (int) Math.floor(a.chest.x());
+            int cy = (int) Math.floor(a.chest.y());
+            int cz = (int) Math.floor(a.chest.z());
+            a.pos1 = new Model.Point(b.world(), Math.min(b.x1(), cx), Math.min(b.y1(), cy), Math.min(b.z1(), cz), a.pos1.yaw(), a.pos1.pitch());
+            a.pos2 = new Model.Point(b.world(), Math.max(b.x2(), cx), Math.max(b.y2(), cy), Math.max(b.z2(), cz), a.pos2.yaw(), a.pos2.pitch());
+            try {
+                this.c.saveArena(a);
+                this.regions.sync(a);
+            } catch (Exception ignored) {}
+        }
+    }
+
     public List<String> validate(Model.Arena a, boolean integration) {
         ArrayList<String> issues;
         block9: {
@@ -206,6 +259,18 @@ public final class Engine {
                 this.regions.validate(a.box().world());
                 if (a.schematic != null) {
                     this.structures.load(a.schematic);
+                }
+                if (a.chest == null) {
+                    Model.Point found = this.findChest(a);
+                    if (found == null && this.structures != null) {
+                        found = this.structures.findChestInTemplate(a);
+                    }
+                    if (found != null) {
+                        a.chest = found;
+                        this.ensureContainsChest(a);
+                    }
+                } else {
+                    this.ensureContainsChest(a);
                 }
                 if (a.chest == null || !a.box().contains(a.chest)) {
                     throw new IllegalArgumentException("\u0421\u0443\u043d\u0434\u0443\u043a \u043d\u0435 \u0437\u0430\u0434\u0430\u043d \u0438\u043b\u0438 \u043d\u0430\u0445\u043e\u0434\u0438\u0442\u0441\u044f \u0432\u043d\u0435 \u0440\u0435\u0433\u0438\u043e\u043d\u0430. \u041d\u0430\u0432\u0435\u0434\u0438\u0442\u0435\u0441\u044c \u043d\u0430 \u043e\u0434\u0438\u043d\u043e\u0447\u043d\u044b\u0439 \u0441\u0443\u043d\u0434\u0443\u043a: /jd chest " + a.id);
@@ -237,112 +302,206 @@ public final class Engine {
     }
 
     private void checkChest(Model.Point point) {
-        Container container;
-        Chest chest;
-        BlockData blockData;
+        if (point == null) {
+            throw new IllegalArgumentException("Сундук не установлен: /jd chest <id>");
+        }
         Location l = point.location();
-        if (l == null || !((blockData = l.getBlock().getBlockData()) instanceof Chest) || (chest = (Chest)blockData).getType() != Chest.Type.SINGLE) {
-            throw new IllegalArgumentException("\u041d\u0443\u0436\u0435\u043d \u043e\u0434\u0438\u043d\u043e\u0447\u043d\u044b\u0439 \u0441\u0443\u043d\u0434\u0443\u043a: /jd chest <id>");
+        if (l == null) {
+            throw new IllegalArgumentException("Мир сундука не найден: /jd chest <id>");
         }
-        if (l.clone().add(0.0, 1.0, 0.0).getBlock().getType().isOccluding()) {
-            throw new IllegalArgumentException("\u041e\u0441\u0432\u043e\u0431\u043e\u0434\u0438\u0442\u0435 \u0431\u043b\u043e\u043a \u043d\u0430\u0434 \u0441\u0443\u043d\u0434\u0443\u043a\u043e\u043c");
+        if (!l.getChunk().isLoaded()) {
+            l.getChunk().load(true);
         }
-        BlockState blockState = l.getBlock().getState();
-        if (blockState instanceof Container && !(container = (Container)blockState).getInventory().isEmpty()) {
-            throw new IllegalArgumentException("\u0421\u0443\u043d\u0434\u0443\u043a \u0434\u043e\u043b\u0436\u0435\u043d \u0431\u044b\u0442\u044c \u043f\u0443\u0441\u0442\u044b\u043c");
+        Block block = l.getBlock();
+        BlockData blockData = block.getBlockData();
+        if (blockData instanceof Chest chest) {
+            if (chest.getType() != Chest.Type.SINGLE) {
+                block.setType(org.bukkit.Material.CHEST);
+            }
+        } else if (block.getType() != org.bukkit.Material.BARREL && block.getType() != org.bukkit.Material.CHEST && block.getType() != org.bukkit.Material.TRAPPED_CHEST) {
+            block.setType(org.bukkit.Material.CHEST);
         }
+        if (l.clone().add(0.0, 1.0, 0.0).getBlock().getType().isOccluding() && block.getType() != org.bukkit.Material.BARREL) {
+            l.clone().add(0.0, 1.0, 0.0).getBlock().setType(org.bukkit.Material.AIR);
+        }
+        BlockState blockState = block.getState();
+        if (blockState instanceof Container container) {
+            container.getInventory().clear();
+        }
+    }
+
+    public static Location findSafeExit(Model.Arena arena) {
+        if (arena == null || arena.box() == null) {
+            return Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0).getSpawnLocation();
+        }
+        Model.Box box = arena.box();
+        World w = Bukkit.getWorld(box.world());
+        if (w == null) {
+            return Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0).getSpawnLocation();
+        }
+        int x = box.x1() - 3;
+        int z = box.z1() - 3;
+        int y = PlacementService.getGroundHeight(w, x, z);
+        if (y < w.getMinHeight()) {
+            y = Math.max(w.getMinHeight() + 1, box.y1());
+        }
+        return new Location(w, x + 0.5, y + 1.0, z + 0.5);
     }
 
     private void safeExit(Model.Point point) {
         Location l;
         Location location = l = point == null ? null : point.location();
-        if (!(l != null && l.getWorld().getWorldBorder().isInside(l) && l.getBlock().isPassable() && l.clone().add(0.0, 1.0, 0.0).getBlock().isPassable() && l.clone().add(0.0, -1.0, 0.0).getBlock().getType().isSolid() && !l.getBlock().isLiquid())) {
-            throw new IllegalArgumentException("\u0412\u044b\u0445\u043e\u0434 \u0434\u043e\u043b\u0436\u0435\u043d \u0431\u044b\u0442\u044c \u0441\u0443\u0445\u0438\u043c, \u0441 \u043f\u043e\u043b\u043e\u043c \u0438 \u0434\u0432\u0443\u043c\u044f \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u044b\u043c\u0438 \u0431\u043b\u043e\u043a\u0430\u043c\u0438");
+        if (l == null) {
+            throw new IllegalArgumentException("Выход не задан");
         }
+        if (!(l.getWorld().getWorldBorder().isInside(l) && l.getBlock().isPassable() && l.clone().add(0.0, 1.0, 0.0).getBlock().isPassable() && l.clone().add(0.0, -1.0, 0.0).getBlock().getType().isSolid() && !l.getBlock().isLiquid())) {
+            throw new IllegalArgumentException("Выход должен быть сухим, с полом и двумя свободными блоками");
+        }
+    }
+
+    public CompletableFuture<Model.Session> spawnAsync(String arenaId, String site, boolean test, String actor) {
+        return this.spawnAtAsync(arenaId, site, test, actor, null);
     }
 
     public Model.Session spawn(String arenaId, String site, boolean test, String actor) throws Exception {
         return this.spawnAt(arenaId, site, test, actor, null);
     }
 
-    Model.Session spawnAt(String arenaId, String site, boolean test, String actor, Model.Point anchor) throws Exception {
-        Model.Arena definition = this.c.arenas.get(arenaId);
-        if (definition == null) {
-            throw new IllegalArgumentException("\u041d\u0435\u0442 \u0430\u0440\u0435\u043d\u044b " + arenaId);
-        }
-        this.checkSpawn(definition, test);
-        Model.Arena a = Json.copy(definition, Model.Arena.class);
-        if (anchor != null) {
-            if (!definition.template) {
-                throw new IllegalArgumentException("\u041d\u0435 \u0432\u044b\u0431\u0440\u0430\u043d \u0448\u0430\u0431\u043b\u043e\u043d");
-            }
-            a = definition.at(anchor);
-            a.exit = PlacementService.exitNear(a.box());
-        } else if (site != null) {
-            Model.Point selected = definition.sites.get(site);
-            if (selected == null) {
-                throw new IllegalArgumentException("\u041d\u0435\u0442 \u043f\u043b\u043e\u0449\u0430\u0434\u043a\u0438 " + site);
-            }
-            if (!definition.template) {
-                throw new IllegalArgumentException("\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0435 \u0448\u0430\u0431\u043b\u043e\u043d");
-            }
-            a = definition.at(selected);
-        } else {
-            a.template = false;
-        }
-        this.structures.check(a.box());
-        this.safeExit(a.exit);
-        Model.Box box = a.box();
-        for (Model.Session existing : this.sessions.values()) {
-            if (!this.c.protectionBox(a).intersects(this.c.protectionBox(existing.arena))) continue;
-            throw new IllegalArgumentException("\u041f\u0435\u0440\u0435\u0441\u0435\u0447\u0435\u043d\u0438\u0435 \u0441 " + existing.arenaId);
-        }
-        if (this.regions.overlaps(this.c.protectionBox(a), a.id)) {
-            throw new IllegalArgumentException("\u041f\u0440\u0438\u0432\u0430\u0442 \u0434\u0430\u043d\u0436\u0430 \u043f\u0435\u0440\u0435\u0441\u0435\u043a\u0430\u0435\u0442 \u0434\u0440\u0443\u0433\u043e\u0439 \u0440\u0435\u0433\u0438\u043e\u043d");
-        }
-        Model.Point finalExit = a.exit;
-        if (this.sessions.values().stream().anyMatch(s -> s.arena.playBox().contains(finalExit))) {
-            throw new IllegalArgumentException("\u0412\u044b\u0445\u043e\u0434 \u043f\u0435\u0440\u0435\u0441\u0435\u043a\u0430\u0435\u0442 \u0434\u0440\u0443\u0433\u043e\u0439 \u0434\u0430\u043d\u0436");
-        }
-        if (Bukkit.getOnlinePlayers().stream().anyMatch(pl -> box.contains(pl.getLocation()) && !this.bypass((Player)pl))) {
-            throw new IllegalArgumentException("\u041d\u0430 \u0442\u0435\u0440\u0440\u0438\u0442\u043e\u0440\u0438\u0438 \u043d\u0430\u0445\u043e\u0434\u044f\u0442\u0441\u044f \u0438\u0433\u0440\u043e\u043a\u0438");
-        }
-        World targetWorld = Objects.requireNonNull(Bukkit.getWorld((String)box.world()));
-        if (targetWorld.getNearbyEntities(new BoundingBox((double)box.x1(), (double)box.y1(), (double)box.z1(), (double)(box.x2() + 1), (double)(box.y2() + 1), (double)(box.z2() + 1))).stream().anyMatch(entity -> entity instanceof Mob)) {
-            throw new IllegalArgumentException("\u0422\u0435\u0440\u0440\u0438\u0442\u043e\u0440\u0438\u044f \u0437\u0430\u043d\u044f\u0442\u0430 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0430\u043c\u0438; \u0432\u044b\u0431\u0435\u0440\u0438\u0442\u0435 \u0441\u0432\u043e\u0431\u043e\u0434\u043d\u043e\u0435 \u043c\u0435\u0441\u0442\u043e");
-        }
-        Model.Session s2 = this.createSession(a, test);
-        this.buildingEditors.values().removeIf(arenaId::equals);
-        this.sessions.put(arenaId, s2);
-        this.db.save(s2);
-        this.structures.tickets(s2, true);
+    public CompletableFuture<Model.Session> spawnAtAsync(String arenaId, String site, boolean test, String actor, Model.Point anchor) {
         try {
+            Model.Arena definition = this.c.arenas.get(arenaId);
+            if (definition == null) {
+                return CompletableFuture.failedFuture(new IllegalArgumentException("Нет арены " + arenaId));
+            }
+            this.checkSpawn(definition, test);
+            Model.Arena a = Json.copy(definition, Model.Arena.class);
+            if (anchor != null) {
+                if (!definition.template) {
+                    return CompletableFuture.failedFuture(new IllegalArgumentException("Не выбран шаблон"));
+                }
+                a = definition.at(anchor);
+                a.exit = PlacementService.exitNear(a.box());
+            } else if (site != null) {
+                Model.Point selected = definition.sites.get(site);
+                if (selected == null) {
+                    return CompletableFuture.failedFuture(new IllegalArgumentException("Нет площадки " + site));
+                }
+                if (!definition.template) {
+                    return CompletableFuture.failedFuture(new IllegalArgumentException("Сначала сохраните шаблон"));
+                }
+                a = definition.at(selected);
+            } else {
+                a.template = false;
+            }
+            this.structures.check(a.box());
+            if (a.exit == null) {
+                a.exit = PlacementService.exitNear(a.box());
+            }
+            if (a.exit == null) {
+                Location fallbackLoc = Engine.findSafeExit(a);
+                if (fallbackLoc != null) {
+                    a.exit = Model.Point.of(fallbackLoc);
+                }
+            }
+            try {
+                this.safeExit(a.exit);
+            } catch (Exception ex) {
+                Location fallbackLoc = Engine.findSafeExit(a);
+                if (fallbackLoc != null) {
+                    a.exit = Model.Point.of(fallbackLoc);
+                }
+            }
+            Model.Box box = a.box();
+            for (Model.Session existing : this.sessions.values()) {
+                if (!this.c.protectionBox(a).intersects(this.c.protectionBox(existing.arena))) continue;
+                return CompletableFuture.failedFuture(new IllegalArgumentException("Пересечение с " + existing.arenaId));
+            }
+            if (this.regions.overlaps(this.c.protectionBox(a), a.id)) {
+                return CompletableFuture.failedFuture(new IllegalArgumentException("Приват данжа пересекает другой регион"));
+            }
+            Model.Point finalExit = a.exit;
+            if (this.sessions.values().stream().anyMatch(s -> s.arena.playBox().contains(finalExit))) {
+                return CompletableFuture.failedFuture(new IllegalArgumentException("Выход пересекает другой данж"));
+            }
+            if (Bukkit.getOnlinePlayers().stream().anyMatch(pl -> box.contains(pl.getLocation()) && !this.bypass((Player)pl))) {
+                return CompletableFuture.failedFuture(new IllegalArgumentException("На территории находятся игроки"));
+            }
+            World targetWorld = Objects.requireNonNull(Bukkit.getWorld((String)box.world()));
+            targetWorld.getNearbyEntities(new BoundingBox((double)box.x1(), (double)box.y1(), (double)box.z1(), (double)(box.x2() + 1), (double)(box.y2() + 1), (double)(box.z2() + 1)))
+                    .stream()
+                    .filter(entity -> entity instanceof Mob && !(entity instanceof Player))
+                    .forEach(Entity::remove);
+            Model.Session s2 = this.createSession(a, test);
+            s2.phase = Model.Phase.PREPARING;
+            this.buildingEditors.values().removeIf(arenaId::equals);
+            this.sessions.put(arenaId, s2);
+            this.db.save(s2);
+            this.structures.tickets(s2, true);
+
             if (this.c.main().getBoolean("worldguard.enabled", true)) {
                 s2.regionId = WorldGuardRegions.eventId(s2);
                 this.db.save(s2);
-                this.regions.create(s2);
+                try {
+                    this.regions.create(s2);
+                } catch (Exception ex) {
+                    this.cleanup(s2);
+                    return CompletableFuture.failedFuture(ex);
+                }
             }
-            if (a.template) {
-                this.structures.backup(s2);
-                this.db.save(s2);
-                this.structures.place(s2);
+
+            final Model.Arena finalArena = a;
+            CompletableFuture<Void> placeTask;
+            if (finalArena.template) {
+                placeTask = this.structures.backupAsync(s2)
+                        .thenCompose(v -> {
+                            this.db.save(s2);
+                            return this.structures.placeAsync(s2);
+                        });
+            } else {
+                placeTask = CompletableFuture.completedFuture(null);
             }
-            this.checkChest(a.chest);
-            if (s2.kind == Model.Kind.PVE) {
-                this.mobs.validate(a, s2.theme);
-            }
-            s2.phase = Model.Phase.AVAILABLE;
-            this.db.save(s2);
+
+            CompletableFuture<Model.Session> result = new CompletableFuture<>();
+            placeTask.whenComplete((v, err) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (err != null) {
+                        this.cleanup(s2);
+                        result.completeExceptionally(err);
+                        return;
+                    }
+                    try {
+                        this.checkChest(finalArena.chest);
+                        if (s2.kind == Model.Kind.PVE) {
+                            this.mobs.validate(finalArena, s2.theme);
+                        }
+                        s2.phase = Model.Phase.AVAILABLE;
+                        this.db.save(s2);
+                        this.db.audit(actor, test ? "TEST" : "SPAWN", arenaId + " " + Objects.toString(site, "static"));
+                        if (!test && this.c.main().getBoolean("announcements." + (finalArena.kind == Model.Kind.PVE ? "pve" : "pvp") + "-appearance")) {
+                            this.msg.broadcast(finalArena.kind == Model.Kind.PVE ? "pve-appearance" : "pvp-appearance", Map.of("theme", s2.theme == null ? finalArena.name : s2.theme.name, "world", box.world(), "x", Integer.toString((int)finalArena.chest.x()), "z", Integer.toString((int)finalArena.chest.z())));
+                        }
+                        result.complete(s2);
+                    } catch (Exception ex) {
+                        this.cleanup(s2);
+                        result.completeExceptionally(ex);
+                    }
+                });
+            });
+            return result;
+        } catch (Exception ex) {
+            return CompletableFuture.failedFuture(ex);
         }
-        catch (Exception e) {
-            this.cleanup(s2);
+    }
+
+    public Model.Session spawnAt(String arenaId, String site, boolean test, String actor, Model.Point anchor) throws Exception {
+        try {
+            return this.spawnAtAsync(arenaId, site, test, actor, anchor).join();
+        } catch (java.util.concurrent.CompletionException e) {
+            if (e.getCause() instanceof Exception ex) {
+                throw ex;
+            }
             throw e;
         }
-        this.db.audit(actor, test ? "TEST" : "SPAWN", arenaId + " " + Objects.toString(site, "static"));
-        if (!test && this.c.main().getBoolean("announcements." + (a.kind == Model.Kind.PVE ? "pve" : "pvp") + "-appearance")) {
-            this.msg.broadcast(a.kind == Model.Kind.PVE ? "pve-appearance" : "pvp-appearance", Map.of("theme", s2.theme == null ? a.name : s2.theme.name, "world", box.world(), "x", Integer.toString((int)a.chest.x()), "z", Integer.toString((int)a.chest.z())));
-        }
-        return s2;
     }
 
     void checkSpawn(Model.Arena definition, boolean test) {
@@ -639,8 +798,16 @@ public final class Engine {
             }
             this.beginCleanup(s, now);
         }
-        if (s.phase == Model.Phase.CLEANUP && now >= s.cleanupAt) {
-            this.cleanup(s);
+        if (s.phase == Model.Phase.CLEANUP) {
+            long remaining = Rules.remaining(now, s.cleanupAt);
+            for (Player pl : Bukkit.getOnlinePlayers()) {
+                if (s.arena != null && s.arena.playBox() != null && s.arena.playBox().contains(pl.getLocation())) {
+                    pl.sendActionBar(Messages.color("&eДанж исчезнет через: &f" + Rules.time(remaining)));
+                }
+            }
+            if (now >= s.cleanupAt) {
+                this.cleanup(s);
+            }
         }
     }
 
@@ -700,63 +867,213 @@ public final class Engine {
         }
     }
 
-    public void stop(String id, String actor) {
-        Model.Reward r;
+    public Model.Session session(String id) {
+        if (id == null) return null;
         Model.Session s = this.sessions.get(id);
+        if (s != null) return s;
+        for (Model.Session candidate : this.sessions.values()) {
+            if (candidate.id.equalsIgnoreCase(id) || candidate.arenaId.equalsIgnoreCase(id)) {
+                return candidate;
+            }
+            if (candidate.arena != null && candidate.arena.name != null) {
+                if (candidate.arena.name.equalsIgnoreCase(id)
+                        || Messages.stripColor(candidate.arena.name).trim().equalsIgnoreCase(id.trim())) {
+                    return candidate;
+                }
+            }
+        }
+        return null;
+    }
+
+    public CompletableFuture<Void> stop(String id, String actor) {
+        Model.Session s = this.session(id);
         if (s == null) {
-            throw new IllegalArgumentException("\u041d\u0435\u0442 \u0440\u0430\u0437\u043c\u0435\u0449\u0451\u043d\u043d\u043e\u0433\u043e \u0441\u043e\u0431\u044b\u0442\u0438\u044f");
+            s = this.sessions.get(id);
         }
-        this.db.audit(actor, "STOP", id);
-        if (s.rewardId != null && (r = this.db.reward(s.rewardId)) != null && !r.claimed) {
-            r.forfeited = true;
-            this.db.reward(r);
+        if (s == null) {
+            for (Model.Session candidate : this.sessions.values()) {
+                if (candidate.id.equalsIgnoreCase(id) || candidate.arenaId.equalsIgnoreCase(id)) {
+                    s = candidate;
+                    break;
+                }
+            }
         }
-        this.cleanup(s);
+        if (s == null) {
+            throw new IllegalArgumentException("Нет размещённого события");
+        }
+        this.db.audit(actor, "STOP", s.arenaId);
+        try {
+            Model.Reward r;
+            if (s.rewardId != null && (r = this.db.reward(s.rewardId)) != null && !r.claimed) {
+                r.forfeited = true;
+                this.db.reward(r);
+            }
+        } catch (Exception ex) {
+            this.p.getLogger().log(Level.WARNING, "Ошибка обновления статуса награды при остановке: " + ex.getMessage());
+        }
+        return this.cleanupAsync(s);
     }
 
     public void cleanup(Model.Session s) {
+        if (!this.p.isEnabled()) {
+            this.cleanupSync(s);
+            return;
+        }
+        this.cleanupAsync(s);
+    }
+
+    public void cleanupSync(Model.Session s) {
         try {
             for (String id : s.offlinePlayers) {
-                if (Bukkit.getPlayer((UUID)UUID.fromString(id)) != null) continue;
-                this.rememberReturn(s, UUID.fromString(id));
+                try {
+                    UUID u = UUID.fromString(id);
+                    if (Bukkit.getPlayer(u) == null) {
+                        this.rememberReturn(s, u);
+                    }
+                } catch (Exception ignored) {}
             }
             if (s.owner != null && s.ownerPlayer() == null) {
-                this.rememberReturn(s, s.ownerId());
+                try {
+                    this.rememberReturn(s, s.ownerId());
+                } catch (Exception ignored) {}
             }
-            this.mobs.clear(s);
+            try {
+                this.mobs.clear(s);
+            } catch (Exception ex) {
+                this.p.getLogger().log(Level.WARNING, "Ошибка очистки мобов при остановке " + s.arenaId + ": " + ex.getMessage());
+            }
             for (Player pl2 : Bukkit.getOnlinePlayers()) {
-                if (!s.arena.playBox().contains(pl2.getLocation()) || pl2.isDead()) continue;
-                this.eject(s, pl2);
+                if (s.arena != null && s.arena.playBox() != null && s.arena.playBox().contains(pl2.getLocation()) && !pl2.isDead()) {
+                    this.eject(s, pl2);
+                }
             }
-            if (Bukkit.getOnlinePlayers().stream().anyMatch(pl -> !pl.isDead() && s.arena.playBox().contains(pl.getLocation()))) {
-                throw new IllegalStateException("\u0418\u0433\u0440\u043e\u043a\u0430 \u043d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e \u0432\u044b\u0432\u0435\u0441\u0442\u0438; \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 \u043e\u0442\u043b\u043e\u0436\u0435\u043d\u043e");
+            try {
+                this.structures.restore(s);
+            } catch (Exception ex) {
+                this.p.getLogger().log(Level.WARNING, "Ошибка восстановления блоков при остановке " + s.arenaId + ": " + ex.getMessage(), ex);
             }
-            this.structures.restore(s);
-            this.regions.delete(s);
-            this.db.delete(s);
+            try {
+                this.regions.delete(s);
+            } catch (Exception ex) {
+                this.p.getLogger().log(Level.WARNING, "Ошибка удаления привата при остановке " + s.arenaId + ": " + ex.getMessage(), ex);
+            }
+            try {
+                this.db.delete(s);
+            } catch (Exception ex) {
+                this.p.getLogger().log(Level.WARNING, "Ошибка удаления сессии из БД: " + ex.getMessage());
+            }
             this.sessions.remove(s.arenaId);
-            this.structures.tickets(s, false);
-            this.structures.discardBackup(s);
-        }
-        catch (Exception e) {
+            this.sessions.remove(s.id);
+            try {
+                this.structures.tickets(s, false);
+            } catch (Exception ignored) {}
+            try {
+                this.structures.discardBackup(s);
+            } catch (Exception ignored) {}
+        } catch (Exception e) {
             s.phase = Model.Phase.RESTORE_FAILED;
-            this.db.save(s);
-            this.p.getLogger().log(Level.SEVERE, "\u0412\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d\u0438\u0435 " + s.arenaId + " \u0437\u0430\u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u043d\u043e. \u0418\u0441\u043f\u0440\u0430\u0432\u044c\u0442\u0435 \u0432\u044b\u0445\u043e\u0434/\u043c\u0438\u0440 \u0438 \u043f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 /jd stop " + s.arenaId, e);
+            try {
+                this.db.save(s);
+            } catch (Exception ignored) {}
+            this.p.getLogger().log(Level.SEVERE, "Остановка " + s.arenaId + " завершилась с ошибкой", e);
         }
     }
 
+    public CompletableFuture<Void> cleanupAsync(Model.Session s) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        try {
+            for (String id : s.offlinePlayers) {
+                try {
+                    UUID u = UUID.fromString(id);
+                    if (Bukkit.getPlayer(u) == null) {
+                        this.rememberReturn(s, u);
+                    }
+                } catch (Exception ignored) {}
+            }
+            if (s.owner != null && s.ownerPlayer() == null) {
+                try {
+                    this.rememberReturn(s, s.ownerId());
+                } catch (Exception ignored) {}
+            }
+            try {
+                this.mobs.clear(s);
+            } catch (Exception ex) {
+                this.p.getLogger().log(Level.WARNING, "Ошибка очистки мобов при остановке " + s.arenaId + ": " + ex.getMessage());
+            }
+            for (Player pl2 : Bukkit.getOnlinePlayers()) {
+                if (s.arena != null && s.arena.playBox() != null && s.arena.playBox().contains(pl2.getLocation()) && !pl2.isDead()) {
+                    this.eject(s, pl2);
+                }
+            }
+            s.phase = Model.Phase.CLEANUP;
+
+            CompletableFuture<Void> restoreTask;
+            if (s.backup != null) {
+                restoreTask = this.structures.restoreAsync(s);
+            } else if (s.arena != null && s.arena.template && s.arena.box() != null) {
+                restoreTask = this.structures.clearAreaAsync(s.arena.box());
+            } else {
+                restoreTask = CompletableFuture.completedFuture(null);
+            }
+
+            restoreTask.whenComplete((v, restoreErr) -> {
+                Bukkit.getScheduler().runTask(this.p, () -> {
+                    if (restoreErr != null) {
+                        this.p.getLogger().log(Level.WARNING, "Ошибка восстановления блоков при остановке " + s.arenaId + ": " + restoreErr.getMessage(), restoreErr);
+                    }
+                    try {
+                        this.regions.delete(s);
+                    } catch (Exception ex) {
+                        this.p.getLogger().log(Level.WARNING, "Ошибка удаления привата при остановке " + s.arenaId + ": " + ex.getMessage(), ex);
+                    }
+                    try {
+                        this.db.delete(s);
+                    } catch (Exception ex) {
+                        this.p.getLogger().log(Level.WARNING, "Ошибка удаления сессии из БД: " + ex.getMessage());
+                    }
+                    this.sessions.remove(s.arenaId);
+                    this.sessions.remove(s.id);
+                    try {
+                        this.structures.tickets(s, false);
+                    } catch (Exception ignored) {}
+                    try {
+                        this.structures.discardBackup(s);
+                    } catch (Exception ignored) {}
+
+                    if (restoreErr != null) {
+                        future.completeExceptionally(restoreErr);
+                    } else {
+                        future.complete(null);
+                    }
+                });
+            });
+        } catch (Exception e) {
+            s.phase = Model.Phase.RESTORE_FAILED;
+            try {
+                this.db.save(s);
+            } catch (Exception ignored) {}
+            this.p.getLogger().log(Level.SEVERE, "Остановка " + s.arenaId + " завершилась с ошибкой", e);
+            future.completeExceptionally(e);
+        }
+        return future;
+    }
+
     public void eject(Model.Session s, Player pl) {
-        if (pl.isDead()) {
+        if (pl == null || pl.isDead() || !pl.isOnline()) {
             return;
         }
-        try {
-            this.safeExit(s.arena.exit);
-            if (!pl.teleport(s.arena.exit.location())) {
-                throw new IllegalStateException("\u0422\u0435\u043b\u0435\u043f\u043e\u0440\u0442 \u043e\u0442\u043c\u0435\u043d\u0451\u043d \u0434\u0440\u0443\u0433\u0438\u043c \u043f\u043b\u0430\u0433\u0438\u043d\u043e\u043c");
-            }
+        Location target = null;
+        if (s.arena != null && s.arena.exit != null && s.arena.exit.location() != null) {
+            try {
+                this.safeExit(s.arena.exit);
+                target = s.arena.exit.location();
+            } catch (Exception ignored) {}
         }
-        catch (Exception e) {
-            throw new IllegalStateException("\u041d\u0435\u0431\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u044b\u0439 \u0432\u044b\u0445\u043e\u0434 " + s.arenaId + ": " + e.getMessage(), e);
+        if (target == null) {
+            target = Engine.findSafeExit(s.arena);
+        }
+        if (target != null) {
+            pl.teleport(target);
         }
     }
 

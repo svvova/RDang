@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
@@ -379,7 +380,12 @@ final class SchematicCodec {
     }
 
     private static boolean isChest(Map<String, Object> state) {
-        return List.of("minecraft:chest", "minecraft:trapped_chest").contains(state.get("Name"));
+        if (state == null) return false;
+        String name = Objects.toString(state.get("Name"), "").toLowerCase(Locale.ROOT);
+        if (name.startsWith("minecraft:")) {
+            name = name.substring("minecraft:".length());
+        }
+        return name.equals("chest") || name.equals("trapped_chest") || name.equals("barrel");
     }
 
     private static Map<String, Object> state(String text) {
