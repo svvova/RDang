@@ -231,6 +231,7 @@ public final class Templates {
     public void capture(Model.Arena a) throws Exception {
         this.check(a.box());
         this.blocks(io -> io.capture(a.box(), this.root.resolve("templates/" + a.id + ".schem")));
+        this.clearArea(a.box());
         a.template = true;
         a.schematic = null;
         this.invalidateCache(a.id);
@@ -242,6 +243,7 @@ public final class Templates {
         Path target = this.root.resolve("templates/" + a.id + ".schem");
         return this.prepareChunksAsync(a.box())
                 .thenCompose(v -> this.backend().captureAsync(a.box(), target))
+                .thenCompose(v -> this.backend().clearAsync(a.box()))
                 .whenComplete((v, err) -> {
                     Bukkit.getScheduler().runTask(this.p, () -> {
                         this.tickets(a.box(), false);
@@ -395,6 +397,12 @@ public final class Templates {
 
     public Model.Arena bind(Model.Arena arena, String file, Model.Point origin) throws Exception {
         SchematicCodec.Image image = this.load(file);
+        int[] fileOff = this.c.schematicOffset(file);
+        if (arena.offsetX == 0 && arena.offsetY == 0 && arena.offsetZ == 0) {
+            arena.offsetX = fileOff[0];
+            arena.offsetY = fileOff[1];
+            arena.offsetZ = fileOff[2];
+        }
         if (arena.pos1 != null && arena.pos2 != null) {
             Model.Point before = arena.box().origin();
             double dx = origin.x() - before.x();

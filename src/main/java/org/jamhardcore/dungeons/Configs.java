@@ -308,6 +308,16 @@ public final class Configs {
                 if (arena.name == null) {
                     arena.name = id;
                 }
+                ConfigurationSection rawSec = arenaRoot.getConfigurationSection(id);
+                if (rawSec != null) {
+                    if (rawSec.contains("offset-x")) arena.offsetX = rawSec.getInt("offset-x");
+                    if (rawSec.contains("offset-y")) arena.offsetY = rawSec.getInt("offset-y");
+                    if (rawSec.contains("offset-z")) arena.offsetZ = rawSec.getInt("offset-z");
+                    if (rawSec.contains("spawn-offset.x")) arena.offsetX = rawSec.getInt("spawn-offset.x");
+                    if (rawSec.contains("spawn-offset.y")) arena.offsetY = rawSec.getInt("spawn-offset.y");
+                    if (rawSec.contains("spawn-offset.z")) arena.offsetZ = rawSec.getInt("spawn-offset.z");
+                    if (rawSec.contains("spawn-offset-y")) arena.offsetY = rawSec.getInt("spawn-offset-y");
+                }
                 if (arena.kind == Model.Kind.PVE && !parsedThemes.containsKey(arena.theme)) {
                     throw new IllegalArgumentException("\u041d\u0435\u0442 \u0442\u0435\u043c\u044b " + arena.theme);
                 }
@@ -343,6 +353,7 @@ public final class Configs {
         p.minCoins = s.getInt("coins.min");
         p.maxCoins = s.getInt("coins.max");
         p.picks = s.getInt("item-picks");
+        p.caseChance = s.getDouble("case-chance", 100.0);
         if (p.minCoins < 0 || p.maxCoins < p.minCoins || p.maxCoins > 100000000) {
             throw new IllegalArgumentException("\u041d\u0435\u043a\u043e\u0440\u0440\u0435\u043a\u0442\u043d\u044b\u0439 \u0434\u0438\u0430\u043f\u0430\u0437\u043e\u043d \u043c\u043e\u043d\u0435\u0442 " + path);
         }
@@ -400,12 +411,20 @@ public final class Configs {
             Rules.positiveWeight(w);
             p.cases.add(new Model.CaseChoice(id, w));
         }
-        if (path.equals("pvp") && (p.cases.size() != 3 || p.cases.stream().map(Model.CaseChoice::id).distinct().count() != 3L)) {
+        if (path.equals("pvp") && !p.cases.isEmpty() && (p.cases.size() != 3 || p.cases.stream().map(Model.CaseChoice::id).distinct().count() != 3L)) {
             throw new IllegalArgumentException("PvP \u0442\u0440\u0435\u0431\u0443\u0435\u0442 \u0442\u0440\u0438 \u0440\u0430\u0437\u043d\u044b\u0445 \u0440\u043e\u043b\u0438 \u043a\u0435\u0439\u0441\u043e\u0432");
         }
         Rules.positiveWeight(p.items.stream().mapToDouble(i -> i.weight).sum());
         if (!p.cases.isEmpty()) {
             Rules.positiveWeight(p.cases.stream().mapToDouble(Model.CaseChoice::weight).sum());
+        }
+        ConfigurationSection petSec = s.getConfigurationSection("pets");
+        if (petSec != null) {
+            p.pets.enabled = petSec.getBoolean("enabled", true);
+            p.pets.legendaryChance = petSec.getDouble("legendary-chance", 10.0);
+            p.pets.epicChance = petSec.getDouble("epic-chance", 25.0);
+            p.pets.rareChance = petSec.getDouble("rare-chance", 75.0);
+            p.pets.command = petSec.getString("command", "petadmin giveegg {player} {tier}");
         }
         for (Model.ItemChoice item : p.items) {
             if (!item.books.isEmpty() && !item.material.equals("ENCHANTED_BOOK")) {
@@ -544,6 +563,50 @@ public final class Configs {
             }
         }
         return null;
+    }
+
+    public int[] schematicOffset(String schemFile) {
+        if (schemFile == null || schemFile.isBlank()) {
+            return new int[]{0, 0, 0};
+        }
+        String clean = schemFile.trim();
+        ConfigurationSection sec = this.main().getConfigurationSection("schematics.offsets." + clean);
+        if (sec == null && clean.endsWith(".schem")) {
+            sec = this.main().getConfigurationSection("schematics.offsets." + clean.substring(0, clean.length() - 6));
+        }
+        if (sec == null && !clean.contains(".")) {
+            sec = this.main().getConfigurationSection("schematics.offsets." + clean + ".schem");
+        }
+        if (sec != null) {
+            return new int[]{sec.getInt("x", 0), sec.getInt("y", 0), sec.getInt("z", 0)};
+        }
+        return new int[]{0, 0, 0};
+    }
+
+    public void setSchematicOffset(String schemFile, int x, int y, int z) {
+        if (schemFile == null || schemFile.isBlank()) return;
+        String clean = schemFile.trim();
+        this.edit("config", yml -> {
+            String path = "schematics.offsets." + clean;
+            if (x == 0 && y == 0 && z == 0) {
+                yml.set(path, null);
+            } else {
+                yml.set(path + ".x", x);
+                yml.set(path + ".y", y);
+                yml.set(path + ".z", z);
+            }
+        });
+    }
+
+    public int[] getEffectiveOffset(Model.Arena arena) {
+        if (arena == null) return new int[]{0, 0, 0};
+        if (arena.offsetX != 0 || arena.offsetY != 0 || arena.offsetZ != 0) {
+            return new int[]{arena.offsetX, arena.offsetY, arena.offsetZ};
+        }
+        if (arena.schematic != null) {
+            return this.schematicOffset(arena.schematic);
+        }
+        return new int[]{0, 0, 0};
     }
 
     public static void write(Path path, String text) throws Exception {

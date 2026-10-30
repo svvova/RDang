@@ -4,6 +4,14 @@ pve:
     min: 0
     max: 500
   item-picks: 4
+  # Яйца питомцев за победу в PvE (выдаются командой /petadmin giveegg <ник> <epic/legendary/rare>)
+  # Каскадный шанс: сначала проверяется Legendary (10%), затем Epic (25%), затем Rare (75%)
+  pets:
+    enabled: true
+    legendary-chance: 10.0
+    epic-chance: 25.0
+    rare-chance: 75.0
+    command: "petadmin giveegg {player} {tier}"
   items:
   - id: bread
     material: BREAD
@@ -83,52 +91,101 @@ pvp:
   coins:
     min: 2000
     max: 10000
-  item-picks: 2
-  cases:
-  - id: donation
-    weight: 20
-  - id: epic
-    weight: 30
-  - id: resource
-    weight: 50
+  item-picks: 3
+  # Яйца питомцев за победу в PvP (выдаются командой /petadmin giveegg <ник> <epic/legendary/rare>)
+  # Каскадный шанс: сначала проверяется Legendary (10%), затем Epic (25%), затем Rare (75%)
+  pets:
+    enabled: true
+    legendary-chance: 10.0
+    epic-chance: 25.0
+    rare-chance: 75.0
+    command: "petadmin giveegg {player} {tier}"
   items:
-  - id: shulker
-    material: SHULKER_BOX
-    min: 1
-    max: 1
+  # Обычные полезные предметы: еда, блоки дерева 16 шт, стрелы, железо, золото и расходники
+  - id: cooked_beef
+    material: COOKED_BEEF
+    min: 16
+    max: 32
+    weight: 24
+  - id: golden_carrots
+    material: GOLDEN_CARROT
+    min: 16
+    max: 32
+    weight: 22
+  - id: bread
+    material: BREAD
+    min: 16
+    max: 32
     weight: 20
-  - id: elytra
-    material: ELYTRA
-    min: 1
-    max: 1
-    weight: 8
-  - id: apples
-    material: GOLDEN_APPLE
+  - id: oak_logs
+    material: OAK_LOG
+    min: 16
+    max: 16
+    weight: 20
+  - id: spruce_logs
+    material: SPRUCE_LOG
+    min: 16
+    max: 16
+    weight: 18
+  - id: birch_logs
+    material: BIRCH_LOG
+    min: 16
+    max: 16
+    weight: 16
+  - id: arrows
+    material: ARROW
+    min: 16
+    max: 32
+    weight: 22
+  - id: iron_ingots
+    material: IRON_INGOT
     min: 8
-    max: 8
+    max: 16
     weight: 20
+  - id: gold_ingots
+    material: GOLD_INGOT
+    min: 4
+    max: 12
+    weight: 18
+  - id: exp_bottles
+    material: EXPERIENCE_BOTTLE
+    min: 8
+    max: 16
+    weight: 18
+  - id: fireworks
+    material: FIREWORK_ROCKET
+    min: 8
+    max: 16
+    weight: 16
+  - id: ender_pearls
+    material: ENDER_PEARL
+    min: 2
+    max: 4
+    weight: 15
+  - id: golden_apples
+    material: GOLDEN_APPLE
+    min: 2
+    max: 4
+    weight: 12
+  - id: diamonds
+    material: DIAMOND
+    min: 2
+    max: 4
+    weight: 10
+  # Редкие предметы строго по балансу: максимум 1 блок алмаза, максимум 1 панцирь шалкера редко
+  # Шалкера и элитры полностью исключены
   - id: totem
     material: TOTEM_OF_UNDYING
     min: 1
-    max: 2
-    weight: 17
-    amounts:
-    - amount: 1
-      weight: 70
-    - amount: 2
-      weight: 30
-  - id: diamonds
-    material: DIAMOND
-    min: 16
-    max: 16
-    weight: 15
-  - id: diamond_blocks
+    max: 1
+    weight: 5
+  - id: diamond_block
     material: DIAMOND_BLOCK
-    min: 2
-    max: 4
-    weight: 20
-    amounts:
-    - amount: 2
-      weight: 75
-    - amount: 4
-      weight: 25
+    min: 1
+    max: 1
+    weight: 4
+  - id: shulker_shell
+    material: SHULKER_SHELL
+    min: 1
+    max: 1
+    weight: 4

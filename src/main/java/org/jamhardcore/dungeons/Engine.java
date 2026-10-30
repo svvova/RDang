@@ -287,7 +287,7 @@ public final class Engine {
                 }
                 if (integration) {
                     this.hooks.checkEconomy();
-                    if (a.kind == Model.Kind.PVP) {
+                    if (a.kind == Model.Kind.PVP && this.c.pvp != null && !this.c.pvp.cases.isEmpty()) {
                         this.hooks.checkCases();
                     }
                 }
@@ -388,6 +388,10 @@ public final class Engine {
                 }
                 if (!definition.template) {
                     return CompletableFuture.failedFuture(new IllegalArgumentException("Сначала сохраните шаблон"));
+                }
+                int[] offset = this.c.getEffectiveOffset(definition);
+                if (offset[0] != 0 || offset[1] != 0 || offset[2] != 0) {
+                    selected = selected.shift(offset[0], offset[1], offset[2], selected.world());
                 }
                 a = definition.at(selected);
             } else {
@@ -535,9 +539,12 @@ public final class Engine {
         s.lootSeconds = this.c.timer("loot-seconds");
         s.cleanupSeconds = this.c.timer("cleanup-seconds");
         s.rewardPool = Json.copy(a.kind == Model.Kind.PVE ? this.c.pve : this.c.pvp, Model.Pool.class);
-        if (!test && a.kind == Model.Kind.PVP) {
+        if (!test) {
             for (String role : List.of("donation", "epic", "resource")) {
-                s.caseMappings.put(role, this.hooks.mappedCase(role));
+                try {
+                    s.caseMappings.put(role, this.hooks.mappedCase(role));
+                } catch (Exception ignored) {
+                }
             }
         }
         s.availableUntil = System.currentTimeMillis() + 1000L * (long)this.c.timer(a.kind == Model.Kind.PVE ? "pve-available-seconds" : "pvp-available-seconds");

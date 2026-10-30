@@ -212,6 +212,33 @@ implements Listener {
         if ((page + 1) * 36 < all.size()) {
             m.button(52, Material.ARROW, "\u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0430\u044f \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430", List.of(), click -> this.main(pl, page + 1));
         }
+        int activeCount = this.e.sessions.size();
+        int maxLimit = this.e.c.limit("placed-events");
+        m.button(47, Material.NETHER_STAR, "&a&lЗаспавнить ВСЕ данжи", List.of(
+            "&7Запускает автоматический спавн всех",
+            "&7созданных данжей в разных точках мира!",
+            "",
+            "&7Всего создано арен: &f" + all.size(),
+            "&7Активно сейчас: &f" + activeCount + "&7/&f" + maxLimit,
+            "",
+            "&eНажми, чтобы заспавнить все данжи"
+        ), click -> this.confirm(pl, "Заспавнить ВСЕ данжи?", () -> {
+            pl.closeInventory();
+            this.command(pl, "spawn", "all");
+        }));
+        if (activeCount > 0) {
+            m.button(48, Material.REDSTONE_BLOCK, "&c&lОстановить все данжи", List.of(
+                "&7Останавливает все активные события",
+                "&7и восстанавливает территорию мира.",
+                "",
+                "&7Активно событий: &c" + activeCount,
+                "",
+                "&eНажми для остановки всех данжей"
+            ), click -> this.confirm(pl, "Остановить ВСЕ активные данжи?", () -> {
+                pl.closeInventory();
+                this.command(pl, "stop", "all");
+            }));
+        }
         m.button(49, Material.CHEST, "&a\u041c\u043e\u0438 \u043d\u0430\u0433\u0440\u0430\u0434\u044b", List.of(), click -> this.pending(pl));
         m.button(53, Material.BARRIER, "\u0417\u0430\u043a\u0440\u044b\u0442\u044c", List.of(), click -> pl.closeInventory());
         pl.openInventory(m.inventory);
@@ -317,7 +344,7 @@ implements Listener {
             this.command(pl, "stop", id);
             this.arena(pl, id);
         }));
-        m.button(23, Material.STRUCTURE_BLOCK, "&eСохранить шаблон постройки", List.of("&7Сохраняет изменённые блоки региона", "&7Сундук и точки переносятся с копией", "&7Исходная постройка остаётся для правок", "&7Плавная запись через FastAsyncWorldEdit", "&7Не сохраняет мобов", "&7Режим: " + ar.placement.label), click -> this.confirm(pl, "Записать шаблон " + id, () -> {
+        m.button(23, Material.STRUCTURE_BLOCK, "&eСохранить шаблон постройки", List.of("&7Сохраняет схематику в templates/", "&7Сундук и точки мобов привязываются", "&aИсходная площадь постройки очищается", "&7Плавная запись и очистка через FAWE", "&7Не сохраняет мобов", "&7Режим: " + ar.placement.label), click -> this.confirm(pl, "Записать шаблон " + id, () -> {
             pl.closeInventory();
             this.command(pl, "template", "save", id);
         }));
@@ -378,6 +405,32 @@ implements Listener {
             "&eНажмите, чтобы открыть меню управления"
         ), click -> {
             this.moveMenu(pl, id, 1);
+        });
+        int[] effOffset = this.e.c.getEffectiveOffset(ar);
+        String yDesc;
+        if (effOffset[1] < 0) {
+            yDesc = "Вниз на " + Math.abs(effOffset[1]) + " бл.";
+        } else if (effOffset[1] > 0) {
+            yDesc = "Вверх на " + effOffset[1] + " бл.";
+        } else {
+            yDesc = "По умолчанию (0)";
+        }
+        List<String> offsetLore = new ArrayList<>();
+        offsetLore.add("&7Настройка постоянного сдвига схематики");
+        offsetLore.add("&7при каждом её спавне в мире.");
+        offsetLore.add("&7Файл: &f" + (ar.schematic != null ? ar.schematic : "внутренний шаблон"));
+        offsetLore.add("&7Текущий сдвиг спавна:");
+        offsetLore.add("  &7• Y (высота): &e" + (effOffset[1] >= 0 ? "+" : "") + effOffset[1] + " &7(" + yDesc + ")");
+        offsetLore.add("  &7• X: &f" + (effOffset[0] >= 0 ? "+" : "") + effOffset[0]);
+        offsetLore.add("  &7• Z: &f" + (effOffset[2] >= 0 ? "+" : "") + effOffset[2]);
+        if (ar.offsetX == 0 && ar.offsetY == 0 && ar.offsetZ == 0 && (effOffset[0] != 0 || effOffset[1] != 0 || effOffset[2] != 0)) {
+            offsetLore.add("&8(унаследовано из настроек файла схематики)");
+        }
+        offsetLore.add("&aСхематика будет спавниться строго с этим смещением!");
+        offsetLore.add("&eНажмите, чтобы открыть меню настройки");
+
+        m.button(39, Material.HOPPER, "&6Преднастройка сдвига спавна", offsetLore, click -> {
+            this.spawnOffsetMenu(pl, id, 1);
         });
         this.back(m, pl, () -> this.main(pl, 0));
         pl.openInventory(m.inventory);
@@ -561,6 +614,18 @@ implements Listener {
             });
         });
 
+        // Pre-configured spawn offset: Slot 48
+        int[] effOff = this.e.c.getEffectiveOffset(ar);
+        m.button(48, Material.HOPPER, "&6Преднастройка сдвига спавна", List.of(
+            "&7Текущий сдвиг спавна:",
+            "&7• X: " + (effOff[0] >= 0 ? "+" : "") + effOff[0] + ", Y: " + (effOff[1] >= 0 ? "+" : "") + effOff[1] + ", Z: " + (effOff[2] >= 0 ? "+" : "") + effOff[2],
+            "&7Задаёт, на сколько блоков смещать",
+            "&7схематику при каждом её спавне в мире.",
+            "&eНажмите, чтобы настроить сдвиг спавна"
+        ), click -> {
+            this.spawnOffsetMenu(pl, ar.id, validStep);
+        });
+
         // Re-paste on current location: Slot 49
         m.button(49, Material.STRUCTURE_BLOCK, "&eПеревставить схему здесь", List.of(
             "&7Принудительно обновить блоки схемы",
@@ -587,6 +652,245 @@ implements Listener {
 
         // Back to Arena: Slot 45
         this.back(m, pl, () -> this.arena(pl, ar.id));
+        pl.openInventory(m.inventory);
+    }
+
+    public void spawnOffsetMenu(Player pl, String targetStr, int step) {
+        Model.Arena ar = this.e.c.findArena(targetStr);
+        String schemFile = (ar != null && ar.schematic != null) ? ar.schematic : (ar == null ? targetStr : null);
+        int validStep = Math.max(1, Math.min(step, 100));
+
+        int[] currentOffset = ar != null ? this.e.c.getEffectiveOffset(ar) : this.e.c.schematicOffset(schemFile);
+        int curX = currentOffset[0];
+        int curY = currentOffset[1];
+        int curZ = currentOffset[2];
+
+        String targetTitle = ar != null ? ar.name : schemFile;
+        Menu m = this.menu(pl, "Сдвиг спавна • " + targetTitle);
+
+        String yDesc;
+        if (curY < 0) yDesc = "Вниз на " + Math.abs(curY) + " бл.";
+        else if (curY > 0) yDesc = "Вверх на " + curY + " бл.";
+        else yDesc = "0 (по уровню земли)";
+
+        String facing = getFacingName(pl);
+        List<String> infoLore = new ArrayList<>();
+        infoLore.add("&7Настройка сдвига при автоматическом, плановом");
+        infoLore.add("&7или ручном спавне этой схематики.");
+        if (ar != null) {
+            infoLore.add("&7Арена: &f" + ar.name + " &7(" + ar.id + ")");
+            if (ar.schematic != null) {
+                infoLore.add("&7Схематика: &f" + ar.schematic);
+            }
+        } else {
+            infoLore.add("&7Файл схематики: &f" + schemFile);
+        }
+        infoLore.add("&6Текущий сдвиг спавна:");
+        infoLore.add("  &7• Y (высота): &e" + (curY >= 0 ? "+" : "") + curY + " &7(" + yDesc + ")");
+        infoLore.add("  &7• X: &f" + (curX >= 0 ? "+" : "") + curX);
+        infoLore.add("  &7• Z: &f" + (curZ >= 0 ? "+" : "") + curZ);
+        infoLore.add("&7Взгляд игрока: &e" + facing);
+        infoLore.add("&7Текущий шаг кнопок: &6" + validStep + " &7бл.");
+
+        m.button(4, Material.PAPER, "&eСдвиг спавна схематики", infoLore, click -> {});
+
+        // Slot 11: ВВЕРХ (+Y)
+        m.button(11, Material.LIME_CONCRETE, "&a⬆ ВВЕРХ (+" + validStep + " Y)", List.of(
+            "&7Сдвинуть точку спавна на &a+" + validStep + " &7бл. вверх",
+            "&7Новый сдвиг Y: &a" + (curY + validStep),
+            "&eНажмите для применения"
+        ), click -> {
+            int newY = curY + validStep;
+            if (ar != null) {
+                ar.offsetX = curX;
+                ar.offsetY = newY;
+                ar.offsetZ = curZ;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, curX, newY, curZ);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Slot 29: ВНИЗ (-Y)
+        m.button(29, Material.RED_CONCRETE, "&c⬇ ВНИЗ (-" + validStep + " Y)", List.of(
+            "&7Опустить точку спавна на &c-" + validStep + " &7бл. вниз (в грунт)",
+            "&7Новый сдвиг Y: &c" + (curY - validStep),
+            "&eНажмите для применения"
+        ), click -> {
+            int newY = curY - validStep;
+            if (ar != null) {
+                ar.offsetX = curX;
+                ar.offsetY = newY;
+                ar.offsetZ = curZ;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, curX, newY, curZ);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Slot 13: ВПЕРЁД
+        int[] fDelta = Commands.getDirectionDelta(pl, "forward", validStep);
+        m.button(13, Material.EMERALD_BLOCK, "&a🔼 ВПЕРЁД (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть спавн вперёд по вашему взгляду",
+            "&7Направление: &e" + facing,
+            "&7Дельта: &f[dx=" + fDelta[0] + ", dz=" + fDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "forward", validStep);
+            int newX = curX + d[0];
+            int newZ = curZ + d[2];
+            if (ar != null) {
+                ar.offsetX = newX;
+                ar.offsetY = curY;
+                ar.offsetZ = newZ;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, newX, curY, newZ);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Slot 21: ВЛЕВО
+        int[] lDelta = Commands.getDirectionDelta(pl, "left", validStep);
+        m.button(21, Material.LAPIS_BLOCK, "&b⬅ ВЛЕВО (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть спавн влево от вашего взгляда",
+            "&7Дельта: &f[dx=" + lDelta[0] + ", dz=" + lDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "left", validStep);
+            int newX = curX + d[0];
+            int newZ = curZ + d[2];
+            if (ar != null) {
+                ar.offsetX = newX;
+                ar.offsetY = curY;
+                ar.offsetZ = newZ;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, newX, curY, newZ);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Slot 22: Сбросить в 0
+        m.button(22, Material.BARRIER, "&cСбросить сдвиг в 0", List.of(
+            "&7Сбросить все смещения (X=0, Y=0, Z=0)",
+            "&7Текущие: X:" + curX + " Y:" + curY + " Z:" + curZ,
+            "&eНажмите для сброса"
+        ), click -> {
+            if (ar != null) {
+                ar.offsetX = 0;
+                ar.offsetY = 0;
+                ar.offsetZ = 0;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, 0, 0, 0);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Slot 23: ВПРАВО
+        int[] rDelta = Commands.getDirectionDelta(pl, "right", validStep);
+        m.button(23, Material.LAPIS_BLOCK, "&b➡ ВПРАВО (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть спавн вправо от вашего взгляда",
+            "&7Дельта: &f[dx=" + rDelta[0] + ", dz=" + rDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "right", validStep);
+            int newX = curX + d[0];
+            int newZ = curZ + d[2];
+            if (ar != null) {
+                ar.offsetX = newX;
+                ar.offsetY = curY;
+                ar.offsetZ = newZ;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, newX, curY, newZ);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Slot 31: НАЗАД
+        int[] bDelta = Commands.getDirectionDelta(pl, "back", validStep);
+        m.button(31, Material.EMERALD_BLOCK, "&a🔽 НАЗАД (" + validStep + " бл.)", List.of(
+            "&7Сдвинуть спавн назад против вашего взгляда",
+            "&7Дельта: &f[dx=" + bDelta[0] + ", dz=" + bDelta[2] + "]",
+            "&eНажмите для применения"
+        ), click -> {
+            int[] d = Commands.getDirectionDelta(pl, "back", validStep);
+            int newX = curX + d[0];
+            int newZ = curZ + d[2];
+            if (ar != null) {
+                ar.offsetX = newX;
+                ar.offsetY = curY;
+                ar.offsetZ = newZ;
+                this.e.c.saveArena(ar);
+            } else {
+                this.e.c.setSchematicOffset(schemFile, newX, curY, newZ);
+            }
+            this.spawnOffsetMenu(pl, targetStr, validStep);
+        });
+
+        // Step presets: Row 4
+        m.button(37, validStep == 1 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 1 ? "&a✔ " : "&7") + "Шаг: 1 блок", List.of("&7Сдвиг по 1 блоку"), click -> this.spawnOffsetMenu(pl, targetStr, 1));
+        m.button(38, validStep == 2 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 2 ? "&a✔ " : "&7") + "Шаг: 2 блока", List.of("&7Сдвиг по 2 блока"), click -> this.spawnOffsetMenu(pl, targetStr, 2));
+        m.button(39, validStep == 5 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 5 ? "&a✔ " : "&7") + "Шаг: 5 блоков", List.of("&7Сдвиг по 5 блоков"), click -> this.spawnOffsetMenu(pl, targetStr, 5));
+        m.button(40, validStep == 10 ? Material.LIME_DYE : Material.GRAY_DYE, (validStep == 10 ? "&a✔ " : "&7") + "Шаг: 10 блоков", List.of("&7Сдвиг по 10 блоков"), click -> this.spawnOffsetMenu(pl, targetStr, 10));
+        m.button(41, Material.NAME_TAG, "&eСвой шаг (в чат)", List.of("&7Задать точное количество блоков"), click -> {
+            this.prompt(pl, "Введите шаг сдвига в блоках (1-100)", input -> {
+                try {
+                    int s = Integer.parseInt(input.trim());
+                    if (s >= 1 && s <= 100) {
+                        this.spawnOffsetMenu(pl, targetStr, s);
+                        return;
+                    }
+                } catch (Exception ignored) {}
+                this.spawnOffsetMenu(pl, targetStr, validStep);
+            });
+        });
+
+        // Row 5 extra options
+        if (schemFile != null) {
+            m.button(47, Material.WRITABLE_BOOK, "&bСохранить для файла схематики", List.of(
+                "&7Файл: &f" + schemFile,
+                "&7Сделать этот сдвиг стандартным для всех арен,",
+                "&7которые будут использовать файл " + schemFile,
+                "&eНажмите для сохранения в config.yml"
+            ), click -> {
+                this.e.c.setSchematicOffset(schemFile, curX, curY, curZ);
+                pl.sendMessage(Messages.color("&aСдвиг спавна [X:" + curX + ", Y:" + curY + ", Z:" + curZ + "] сохранён по умолчанию для файла схематики &e" + schemFile));
+                this.spawnOffsetMenu(pl, targetStr, validStep);
+            });
+        }
+
+        if (ar != null) {
+            m.button(49, Material.PISTON, "&6Перемещение в мире", List.of(
+                "&7Открыть меню динамического перемещения постройки,",
+                "&7размещенной в мире прямо сейчас",
+                "&eНажмите для перехода в меню перемещения"
+            ), click -> {
+                this.moveMenu(pl, ar.id, validStep);
+            });
+
+            m.button(51, Material.ENDER_PEARL, "&dТестовый спавн со сдвигом", List.of(
+                "&7Запустить тестовый спавн арены &f" + ar.name,
+                "&7чтобы проверить, как постройка ложится на рельеф",
+                "&eНажмите для запуска теста"
+            ), click -> {
+                pl.closeInventory();
+                this.command(pl, "test", ar.id);
+            });
+        }
+
+        this.back(m, pl, () -> {
+            if (ar != null) {
+                this.arena(pl, ar.id);
+            } else {
+                this.schematics(pl, "", 0);
+            }
+        });
+
         pl.openInventory(m.inventory);
     }
 
@@ -631,9 +935,25 @@ implements Listener {
             List<String> files = this.e.structures.schematics();
             for (int i = page * 36; i < Math.min(files.size(), (page + 1) * 36); ++i) {
                 String file = files.get(i);
-                m.button(i % 36, Material.MAP, file, List.of("&7A/B: \u043f\u043e \u0440\u0430\u0437\u043c\u0435\u0440\u0443 \u0441\u0445\u0435\u043c\u044b", "&7\u041d\u0430\u0447\u0430\u043b\u043e: \u0432\u0430\u0448\u0435 \u043f\u043e\u043b\u043e\u0436\u0435\u043d\u0438\u0435 \u0441\u0435\u0439\u0447\u0430\u0441"), click -> {
-                    this.command(pl, "schematic", "use", id, file);
-                    this.arena(pl, id);
+                int[] fileOff = this.e.c.schematicOffset(file);
+                List<String> fileLore = new ArrayList<>();
+                fileLore.add("&7A/B: по размеру схемы");
+                fileLore.add("&7Начало: ваше положение сейчас");
+                if (fileOff[0] != 0 || fileOff[1] != 0 || fileOff[2] != 0) {
+                    String yD = fileOff[1] < 0 ? "Вниз " + Math.abs(fileOff[1]) : (fileOff[1] > 0 ? "Вверх " + fileOff[1] : "0");
+                    fileLore.add("&6Сдвиг спавна: &eX:" + fileOff[0] + " Y:" + fileOff[1] + " (" + yD + ") Z:" + fileOff[2]);
+                } else {
+                    fileLore.add("&7Сдвиг спавна: 0 (по умолчанию)");
+                }
+                fileLore.add("&eЛКМ: &7выбрать для арены");
+                fileLore.add("&bПКМ: &7настроить сдвиг спавна схематики");
+                m.button(i % 36, Material.MAP, file, fileLore, click -> {
+                    if (click.isRightClick()) {
+                        this.spawnOffsetMenu(pl, file, 1);
+                    } else {
+                        this.command(pl, "schematic", "use", id, file);
+                        this.arena(pl, id);
+                    }
                 });
             }
             if (files.isEmpty()) {
@@ -858,7 +1178,13 @@ implements Listener {
         for (int i = 0; i < Math.min(45, all.size()); ++i) {
             String id = all.get((int)i).id;
             Model.Reward r = all.get(i);
-            m.button(i, Material.CHEST, "&a" + String.valueOf((Object)r.kind) + " \u2022 " + id.substring(0, 8), List.of("&7\u041c\u043e\u043d\u0435\u0442\u044b: " + r.coins + " / " + String.valueOf((Object)r.coinState), "&7\u041a\u0435\u0439\u0441: " + Objects.toString(r.caseId, "\u2014") + " / " + String.valueOf((Object)r.caseState), "&7\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u043e\u0432 \u043e\u0441\u0442\u0430\u043b\u043e\u0441\u044c: " + r.items.stream().mapToInt(x -> x.remaining).sum(), "&e\u041d\u0430\u0436\u043c\u0438 \u0434\u043b\u044f \u0432\u044b\u0434\u0430\u0447\u0438 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e\u0433\u043e \u043e\u0441\u0442\u0430\u0442\u043a\u0430"), click -> {
+            m.button(i, Material.CHEST, "&a" + String.valueOf((Object)r.kind) + " \u2022 " + id.substring(0, 8), List.of(
+                "&7\u041c\u043e\u043d\u0435\u0442\u044b: " + r.coins + " / " + String.valueOf((Object)r.coinState),
+                "&7\u041a\u0435\u0439\u0441: " + Objects.toString(r.caseId, "\u2014") + " / " + String.valueOf((Object)r.caseState),
+                (r.petEgg != null ? "&7\u042f\u0439\u0446\u043e: " + r.petEgg + " / " + String.valueOf((Object)r.petEggState) : "&7\u042f\u0439\u0446\u043e: \u2014"),
+                "&7\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u043e\u0432 \u043e\u0441\u0442\u0430\u043b\u043e\u0441\u044c: " + r.items.stream().mapToInt(x -> x.remaining).sum(),
+                "&e\u041d\u0430\u0436\u043c\u0438 \u0434\u043b\u044f \u0432\u044b\u0434\u0430\u0447\u0438 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u043e\u0433\u043e \u043e\u0441\u0442\u0430\u0442\u043a\u0430"
+            ), click -> {
                 Model.Reward fresh = this.e.db.reward(id);
                 if (fresh != null) {
                     this.e.rewards.deliver(pl, fresh);
@@ -876,10 +1202,15 @@ implements Listener {
 
     private void review(Player pl, int page) {
         Menu m = this.menu(pl, "\u0421\u0432\u0435\u0440\u043a\u0430 \u043d\u0430\u0447\u0438\u0441\u043b\u0435\u043d\u0438\u0439 REVIEW");
-        List<Model.Reward> all = this.e.db.rewards(null).stream().filter(r -> r.coinState == Model.Delivery.REVIEW || r.caseState == Model.Delivery.REVIEW || r.items.stream().anyMatch(i -> i.state == Model.Delivery.REVIEW)).toList();
+        List<Model.Reward> all = this.e.db.rewards(null).stream().filter(r -> r.coinState == Model.Delivery.REVIEW || r.caseState == Model.Delivery.REVIEW || r.petEggState == Model.Delivery.REVIEW || r.items.stream().anyMatch(i -> i.state == Model.Delivery.REVIEW)).toList();
         for (int i = page * 36; i < Math.min(all.size(), (page + 1) * 36); ++i) {
             Model.Reward r2 = all.get(i);
-            m.button(i % 36, Material.WRITABLE_BOOK, "&e" + r2.id.substring(0, 8), List.of("&7UUID: " + r2.owner, "&7coins=" + String.valueOf((Object)r2.coinState) + ", case=" + String.valueOf((Object)r2.caseState), "&7\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u044b: " + String.valueOf(r2.items.stream().map(x -> String.valueOf((Object)x.state) + ":" + x.remaining + "/" + x.planned).toList()), "&e\u041e\u0442\u043a\u0440\u043e\u0439 \u0434\u043b\u044f \u0441\u0432\u0435\u0440\u043a\u0438 \u0441 \u0431\u0430\u043b\u0430\u043d\u0441\u043e\u043c/\u0438\u043d\u0432\u0435\u043d\u0442\u0430\u0440\u0451\u043c"), click -> this.reviewParts(pl, r2.id));
+            m.button(i % 36, Material.WRITABLE_BOOK, "&e" + r2.id.substring(0, 8), List.of(
+                "&7UUID: " + r2.owner,
+                "&7coins=" + String.valueOf((Object)r2.coinState) + ", case=" + String.valueOf((Object)r2.caseState) + (r2.petEgg != null ? ", egg=" + r2.petEggState : ""),
+                "&7\u041f\u0440\u0435\u0434\u043c\u0435\u0442\u044b: " + String.valueOf(r2.items.stream().map(x -> String.valueOf((Object)x.state) + ":" + x.remaining + "/" + x.planned).toList()),
+                "&e\u041e\u0442\u043a\u0440\u043e\u0439 \u0434\u043b\u044f \u0441\u0432\u0435\u0440\u043a\u0438 \u0441 \u0431\u0430\u043b\u0430\u043d\u0441\u043e\u043c/\u0438\u043d\u0432\u0435\u043d\u0442\u0430\u0440\u0451\u043c"
+            ), click -> this.reviewParts(pl, r2.id));
         }
         if (page > 0) {
             m.button(46, Material.ARROW, "\u041f\u0440\u0435\u0434\u044b\u0434\u0443\u0449\u0430\u044f", List.of(), click -> this.review(pl, page - 1));
@@ -900,6 +1231,9 @@ implements Listener {
         }
         if (r.caseState == Model.Delivery.REVIEW) {
             parts.add("case");
+        }
+        if (r.petEggState == Model.Delivery.REVIEW) {
+            parts.add("pet_egg");
         }
         for (int i = 0; i < r.items.size(); ++i) {
             if (r.items.get((int)i).state != Model.Delivery.REVIEW) continue;

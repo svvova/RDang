@@ -31,8 +31,18 @@ public final class Model {
         public int minCoins;
         public int maxCoins;
         public int picks;
+        public double caseChance = 100.0;
+        public PetSpec pets = new PetSpec();
         public List<ItemChoice> items = new ArrayList<ItemChoice>();
         public List<CaseChoice> cases = new ArrayList<CaseChoice>();
+    }
+
+    public static final class PetSpec {
+        public boolean enabled = true;
+        public double legendaryChance = 10.0;
+        public double epicChance = 25.0;
+        public double rareChance = 75.0;
+        public String command = "petadmin giveegg {player} {tier}";
     }
 
     public record CaseChoice(String id, double weight) {
@@ -68,17 +78,22 @@ public final class Model {
         public String owner;
         public String caseRole;
         public String caseId;
+        public String petEgg;
         public Kind kind;
         public int coins;
         public boolean claimed;
         public boolean forfeited;
         public Delivery coinState = Delivery.PENDING;
         public Delivery caseState = Delivery.PENDING;
+        public Delivery petEggState = Delivery.PENDING;
         public List<GiftItem> items = new ArrayList<GiftItem>();
         public String voucherId;
 
         public boolean complete() {
-            return !(this.coins != 0 && this.coinState != Delivery.DONE || this.caseRole != null && this.caseState != Delivery.DONE || !this.items.stream().allMatch(x -> x.remaining == 0));
+            return !(this.coins != 0 && this.coinState != Delivery.DONE
+                || this.caseRole != null && this.caseState != Delivery.DONE
+                || this.petEgg != null && this.petEggState != Delivery.DONE
+                || !this.items.stream().allMatch(x -> x.remaining == 0));
         }
     }
 
@@ -183,6 +198,19 @@ public final class Model {
         public List<String> worlds = new ArrayList<String>();
         public List<String> biomes = new ArrayList<String>();
         public boolean pasteAir = true;
+        public int offsetX = 0;
+        public int offsetY = 0;
+        public int offsetZ = 0;
+
+        public int[] getOffset() {
+            return new int[]{this.offsetX, this.offsetY, this.offsetZ};
+        }
+
+        public void setOffset(int x, int y, int z) {
+            this.offsetX = x;
+            this.offsetY = y;
+            this.offsetZ = z;
+        }
 
         public Box box() {
             return Box.of(this.pos1, this.pos2);

@@ -51,6 +51,10 @@ implements AutoCloseable {
         this.engine = engine;
     }
 
+    public boolean isPending(String id) {
+        return this.pending.contains(id);
+    }
+
     public CompletableFuture<Model.Session> spawn(String id, String site, boolean test, String actor) {
         Model.Arena arena = this.engine.c.arenas.get(id);
         if (arena == null) {
@@ -448,11 +452,24 @@ implements AutoCloseable {
                 }
             }
         }
-        Model.Point anchor = new Model.Point(world.getName(), x, y, z, 0.0f, 0.0f);
+        int[] offset = this.engine.c.getEffectiveOffset(a);
+        int ox = offset[0];
+        int oy = offset[1];
+        int oz = offset[2];
+
+        int finalX = x + ox;
+        int finalY = y + oy;
+        int finalZ = z + oz;
+
+        if (finalY < world.getMinHeight() + 2 || finalY + height >= world.getMaxHeight()) {
+            throw new Rejected("высота со сдвигом спавна Y " + finalY + " выходит за границы мира (" + world.getMinHeight() + ".." + world.getMaxHeight() + ")");
+        }
+
+        Model.Point anchor = new Model.Point(world.getName(), finalX, finalY, finalZ, 0.0f, 0.0f);
         Model.Arena shifted = a.at(anchor);
         Model.Box box = shifted.box();
         this.engine.structures.check(box);
-        if (Math.hypot((double)x - world.getSpawnLocation().getX(), (double)z - world.getSpawnLocation().getZ()) < (double)(this.engine.c.main().getInt("random-placement.spawn-distance", 256) + Math.max(width, length))) {
+        if (Math.hypot((double)finalX - world.getSpawnLocation().getX(), (double)finalZ - world.getSpawnLocation().getZ()) < (double)(this.engine.c.main().getInt("random-placement.spawn-distance", 256) + Math.max(width, length))) {
             throw new Rejected("\u0441\u043b\u0438\u0448\u043a\u043e\u043c \u0431\u043b\u0438\u0437\u043a\u043e \u043a \u0441\u043f\u0430\u0432\u043d\u0443");
         }
         Model.Box protectedBox = this.engine.c.protectionBox(shifted);

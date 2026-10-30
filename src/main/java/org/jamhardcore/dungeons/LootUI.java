@@ -87,6 +87,11 @@ implements Listener {
             this.put(chest, slot, key);
             chest.parts.put(slot++, "case");
         }
+        if (reward.petEgg != null && reward.petEggState != Model.Delivery.DONE) {
+            ItemStack egg = this.rewards.petEggItem(reward.petEgg);
+            this.put(chest, slot, egg);
+            chest.parts.put(slot++, "pet_egg");
+        }
         for (Model.GiftItem gift : reward.items) {
             if (gift.remaining <= 0 || slot >= 45) continue;
             ItemStack item = Rewards.stack(gift);

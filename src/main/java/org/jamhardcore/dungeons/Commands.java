@@ -242,6 +242,11 @@ public final class Commands implements CommandExecutor, TabCompleter {
                         this.handleMove(sender, a);
                         break;
                     }
+                    case "offset":
+                    case "schemoffset": {
+                        this.schematicOffset(sender, a);
+                        break;
+                    }
                     case "launch": {
                         String kind = this.arg(a, 1).toUpperCase(Locale.ROOT);
                         if (!List.of("ALL", "PVE", "PVP").contains(kind)) {
@@ -387,7 +392,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                                     try {
                                         this.e.regions.sync(saved);
                                     } catch (Exception ignored) {}
-                                    sender.sendMessage(Messages.color("&aШаблон сохранён через FAWE: templates/" + id + ".schem. Сундук и точки мобов привязаны к постройке. &7Исходная постройка остаётся для редактирования. Размещение: " + saved.placement.label + ". /jd spawn " + id));
+                                    sender.sendMessage(Messages.color("&aШаблон сохранён через FAWE: templates/" + id + ".schem. Исходная площадь постройки очищена из мира. Сундук и точки мобов привязаны к шаблону. Размещение: " + saved.placement.label + ". /jd spawn " + id));
                                 }
                             });
                         });
@@ -499,8 +504,8 @@ public final class Commands implements CommandExecutor, TabCompleter {
                     case "review": {
                         if (a.length < 4) {
                             for (Model.Reward r : this.e.db.rewards(null)) {
-                                if (r.coinState != Model.Delivery.REVIEW && r.caseState != Model.Delivery.REVIEW && r.items.stream().noneMatch(i -> i.state == Model.Delivery.REVIEW)) continue;
-                                sender.sendMessage(r.id + " owner=" + r.owner + " coins=" + r.coinState + " case=" + r.caseState + " items=" + r.items.stream().map(i -> i.state.toString()).toList());
+                                if (r.coinState != Model.Delivery.REVIEW && r.caseState != Model.Delivery.REVIEW && r.petEggState != Model.Delivery.REVIEW && r.items.stream().noneMatch(i -> i.state == Model.Delivery.REVIEW)) continue;
+                                sender.sendMessage(r.id + " owner=" + r.owner + " coins=" + r.coinState + " case=" + r.caseState + (r.petEgg != null ? " egg=" + r.petEgg + ":" + r.petEggState : "") + " items=" + r.items.stream().map(i -> i.state.toString()).toList());
                             }
                             break;
                         }
@@ -515,7 +520,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                         throw new IllegalArgumentException("Неизвестная команда. /rdang help");
                     }
                 }
-                if (!List.of("menu", "edit", "status", "validate", "audit", "review", "spawn", "test", "launch", "undo", "schem", "autospawn", "give", "stop", "schedule").contains(sub)) {
+                if (!List.of("menu", "edit", "status", "validate", "audit", "review", "spawn", "test", "launch", "undo", "schem", "autospawn", "give", "stop", "schedule", "move", "shift", "offset", "schemoffset").contains(sub)) {
                     this.e.db.audit(sender.getName(), "ADMIN_COMMAND", sub.equals("config") && a.length > 3 && a[3].startsWith("database.") ? "config database.[hidden]" : String.join(" ", a));
                     sender.sendMessage(Messages.color("&aГотово."));
                 }
@@ -557,6 +562,57 @@ public final class Commands implements CommandExecutor, TabCompleter {
             return;
         }
 
+        if (a[1].equalsIgnoreCase("all")) {
+            List<Model.Arena> targets = this.e.c.arenas.values().stream()
+                .filter(ar -> ar.template)
+                .toList();
+            if (targets.isEmpty()) {
+                throw new IllegalArgumentException("Нет доступных арен с шаблонами или схематиками (сохраните шаблон или выберите схему в /jd)");
+            }
+            for (Model.Arena ar : targets) {
+                if (!ar.enabled) {
+                    ar.enabled = true;
+                    try {
+                        this.e.c.saveArena(ar);
+                    } catch (Exception ignored) {}
+                }
+            }
+            List<Model.Arena> toSpawn = targets.stream()
+                .filter(ar -> !this.e.sessions.containsKey(ar.id) && !this.e.placement.isPending(ar.id))
+                .toList();
+            if (toSpawn.isEmpty()) {
+                throw new IllegalArgumentException("Все доступные арены (" + targets.size() + " шт.) уже заспавнены или размещаются!");
+            }
+            int limit = this.e.c.limit("placed-events");
+            int availableSlots = limit - this.e.sessions.size();
+            if (availableSlots <= 0) {
+                throw new IllegalArgumentException("Достигнут лимит активных данжей: " + limit + " (limits.placed-events)");
+            }
+            List<Model.Arena> finalToSpawn = toSpawn.stream().limit(availableSlots).toList();
+            sender.sendMessage(Messages.color("&e[JamDungeons] Запуск спавна &6" + finalToSpawn.size() + " &eданжей в разных точках мира..."));
+            if (toSpawn.size() > finalToSpawn.size()) {
+                sender.sendMessage(Messages.color("&7(Будет заспавнено " + finalToSpawn.size() + " из " + toSpawn.size() + " из-за лимита limits.placed-events = " + limit + ")"));
+            }
+            long delayTicks = 0L;
+            for (Model.Arena ar : finalToSpawn) {
+                final Model.Arena currentArena = ar;
+                Bukkit.getScheduler().runTaskLater(this.e.p, () -> {
+                    if (this.e.sessions.containsKey(currentArena.id) || this.e.placement.isPending(currentArena.id)) return;
+                    sender.sendMessage(Messages.color("&7Поиск точки и размещение данжа &a" + currentArena.id + "&7..."));
+                    this.e.placement.spawn(currentArena.id, "random", isTest, sender.getName()).whenComplete((session, error) -> {
+                        if (error != null) {
+                            Throwable cause = error.getCause() != null ? error.getCause() : error;
+                            this.e.msg.error(sender, "Ошибка спавна " + currentArena.id + ": " + cause.getMessage());
+                        } else {
+                            sender.sendMessage(Messages.color("&a✔ Данж &f" + session.arenaId + " &aуспешно размещён! Координаты: &e" + session.arena.box().world() + " [" + (int)session.arena.chest.x() + ", " + (int)session.arena.chest.y() + ", " + (int)session.arena.chest.z() + "]"));
+                        }
+                    });
+                }, delayTicks);
+                delayTicks += 10L;
+            }
+            return;
+        }
+
         Model.Arena foundArena = this.e.c.findArena(a[1]);
         if (foundArena == null) {
             try {
@@ -590,6 +646,18 @@ public final class Commands implements CommandExecutor, TabCompleter {
     }
 
     private void handleStop(CommandSender sender, String[] a) {
+        if (a.length > 1 && a[1].equalsIgnoreCase("all")) {
+            if (this.e.sessions.isEmpty()) {
+                throw new IllegalArgumentException("Нет активных событий для остановки.");
+            }
+            int count = this.e.sessions.size();
+            for (Model.Session s : new ArrayList<>(this.e.sessions.values())) {
+                this.e.stop(s.arenaId, sender.getName());
+            }
+            sender.sendMessage(Messages.color("&aВсе активные данжи (" + count + " шт.) остановлены, территории восстанавливаются."));
+            return;
+        }
+
         if (a.length > 1) {
             String targetId = a[1];
             Model.Session session = this.e.session(targetId);
@@ -737,7 +805,14 @@ public final class Commands implements CommandExecutor, TabCompleter {
             return;
         }
         SchematicCodec.Image image = this.e.structures.load(name);
-        Location loc = p.getLocation().getBlock().getLocation();
+        Location baseLoc = p.getLocation().getBlock().getLocation();
+        int[] offset = this.e.c.schematicOffset(name);
+        final Location loc = (offset[0] != 0 || offset[1] != 0 || offset[2] != 0)
+                ? baseLoc.clone().add(offset[0], offset[1], offset[2])
+                : baseLoc;
+        if (offset[0] != 0 || offset[1] != 0 || offset[2] != 0) {
+            sender.sendMessage(Messages.color("&7Применён настроенный сдвиг схематики: &f" + formatDelta(offset[0], offset[1], offset[2])));
+        }
         Model.Box box = new Model.Box(
             loc.getWorld().getName(),
             loc.getBlockX(),
@@ -974,8 +1049,10 @@ public final class Commands implements CommandExecutor, TabCompleter {
             }
         } else if (action.equals("move") || action.equals("shift")) {
             this.handleMove(sender, Arrays.copyOfRange(args, 1, args.length));
+        } else if (action.equals("offset") || action.equals("schemoffset")) {
+            this.schematicOffset(sender, Arrays.copyOfRange(args, 1, args.length));
         } else {
-            throw new IllegalArgumentException("/jd schematic list|use <arena> <file>|paste|fit|clear|air <arena> [on|off]|move <arena> <dir> [blocks]");
+            throw new IllegalArgumentException("/jd schematic list|use <arena> <file>|paste|fit|clear|air <arena> [on|off]|move <arena> <dir> [blocks]|offset <arena|file> [dir|dx] [blocks|dy] [dz]");
         }
     }
 
@@ -1353,6 +1430,176 @@ public final class Commands implements CommandExecutor, TabCompleter {
         return future;
     }
 
+    public void schematicOffset(CommandSender sender, String[] a) {
+        String[] args = a.length > 1 && (a[0].equalsIgnoreCase("offset") || a[0].equalsIgnoreCase("schemoffset") || a[0].equalsIgnoreCase("schematic"))
+                ? (a[0].equalsIgnoreCase("schematic") && a.length > 1 && a[1].equalsIgnoreCase("offset")
+                    ? Arrays.copyOfRange(a, 2, a.length)
+                    : Arrays.copyOfRange(a, 1, a.length))
+                : a;
+        if (args.length < 1) {
+            throw new IllegalArgumentException("Использование: /jd offset <арена|файл_схемы> [вверх|вниз|влево|вправо|вперед|назад|север|юг|восток|запад|dx] [блоки|dy] [dz]");
+        }
+
+        Model.Arena targetArena = null;
+        String schemFile = null;
+        int subArgIndex = -1;
+
+        for (int i = args.length; i >= 1; i--) {
+            String candidateName = String.join(" ", Arrays.copyOfRange(args, 0, i));
+            Model.Arena found = this.e.c.findArena(candidateName);
+            if (found != null) {
+                targetArena = found;
+                subArgIndex = i;
+                break;
+            }
+        }
+        if (targetArena == null) {
+            for (int i = args.length; i >= 1; i--) {
+                String candidateName = String.join("_", Arrays.copyOfRange(args, 0, i));
+                Model.Arena found = this.e.c.findArena(candidateName);
+                if (found != null) {
+                    targetArena = found;
+                    subArgIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (targetArena == null) {
+            try {
+                List<String> schems = this.e.structures.schematics();
+                for (int i = args.length; i >= 1; i--) {
+                    String candidateFile = String.join(" ", Arrays.copyOfRange(args, 0, i)).trim();
+                    for (String s : schems) {
+                        if (s.equalsIgnoreCase(candidateFile) || s.equalsIgnoreCase(candidateFile + ".schem")) {
+                            schemFile = s;
+                            subArgIndex = i;
+                            break;
+                        }
+                    }
+                    if (schemFile != null) break;
+                }
+            } catch (Exception ignored) {}
+            if (schemFile == null && (args[0].endsWith(".schem") || args[0].endsWith(".schematic") || args[0].endsWith(".litematic") || args[0].endsWith(".nbt"))) {
+                schemFile = args[0];
+                subArgIndex = 1;
+            }
+        }
+
+        if (targetArena == null && schemFile == null) {
+            throw new IllegalArgumentException("Арена или файл схематики не найдены: " + args[0]);
+        }
+
+        Player pl = sender instanceof Player ? (Player) sender : null;
+
+        if (subArgIndex >= args.length || args[subArgIndex].equalsIgnoreCase("info")) {
+            this.sendOffsetInfo(sender, targetArena, schemFile);
+            return;
+        }
+
+        String firstSub = args[subArgIndex].toLowerCase(Locale.ROOT);
+        if (firstSub.equals("menu") || firstSub.equals("gui")) {
+            if (pl == null) {
+                throw new IllegalArgumentException("Меню доступно только игрокам в игре");
+            }
+            this.ui.spawnOffsetMenu(pl, targetArena != null ? targetArena.id : schemFile, 1);
+            return;
+        }
+
+        int curX, curY, curZ;
+        if (targetArena != null) {
+            int[] eff = this.e.c.getEffectiveOffset(targetArena);
+            curX = eff[0]; curY = eff[1]; curZ = eff[2];
+        } else {
+            int[] eff = this.e.c.schematicOffset(schemFile);
+            curX = eff[0]; curY = eff[1]; curZ = eff[2];
+        }
+
+        int newX = curX, newY = curY, newZ = curZ;
+
+        if (firstSub.equals("reset") || firstSub.equals("clear") || firstSub.equals("0")) {
+            newX = 0; newY = 0; newZ = 0;
+        } else {
+            int remaining = args.length - subArgIndex;
+            if (remaining >= 3 && isInteger(args[subArgIndex]) && isInteger(args[subArgIndex + 1]) && isInteger(args[subArgIndex + 2])) {
+                newX = Integer.parseInt(args[subArgIndex]);
+                newY = Integer.parseInt(args[subArgIndex + 1]);
+                newZ = Integer.parseInt(args[subArgIndex + 2]);
+            } else {
+                int amount = 1;
+                if (remaining >= 2) {
+                    try {
+                        amount = Integer.parseInt(args[subArgIndex + 1]);
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("Количество блоков должно быть числом: " + args[subArgIndex + 1]);
+                    }
+                    if (amount <= 0 || amount > 100) {
+                        throw new IllegalArgumentException("Количество блоков должно быть от 1 до 100");
+                    }
+                }
+                int[] delta = getDirectionDelta(pl, firstSub, amount);
+                if (delta[1] != 0) {
+                    newY = delta[1];
+                } else {
+                    newX = delta[0];
+                    newZ = delta[2];
+                }
+            }
+        }
+
+        if (targetArena != null) {
+            targetArena.offsetX = newX;
+            targetArena.offsetY = newY;
+            targetArena.offsetZ = newZ;
+            this.e.c.saveArena(targetArena);
+        } else {
+            this.e.c.setSchematicOffset(schemFile, newX, newY, newZ);
+        }
+
+        String yDesc;
+        if (newY < 0) yDesc = "Вниз на " + Math.abs(newY) + " бл.";
+        else if (newY > 0) yDesc = "Вверх на " + newY + " бл.";
+        else yDesc = "0 (на уровне поверхности)";
+
+        String targetName = targetArena != null ? "арены &e" + targetArena.name + " &7(" + targetArena.id + ")" : "файла схематики &e" + schemFile;
+        sender.sendMessage(Messages.color("&aСдвиг спавна для " + targetName + " &aустановлен: &fX: " + (newX >= 0 ? "+" : "") + newX + ", Y: " + (newY >= 0 ? "+" : "") + newY + " &7(" + yDesc + ")&f, Z: " + (newZ >= 0 ? "+" : "") + newZ));
+        sender.sendMessage(Messages.color("&7При каждом спавне постройка будет автоматически смещаться на эти координаты."));
+
+        if (targetArena != null) {
+            Model.Session active = this.e.session(targetArena.id);
+            if (active != null) {
+                sender.sendMessage(Messages.color("&e[!] Арена сейчас активна в мире. Чтобы сдвинуть текущую постройку прямо сейчас: &f/jd move " + targetArena.id + " <направление> <блоки>"));
+            }
+        }
+    }
+
+    private void sendOffsetInfo(CommandSender sender, Model.Arena ar, String schemFile) {
+        int[] eff = ar != null ? this.e.c.getEffectiveOffset(ar) : this.e.c.schematicOffset(schemFile);
+        String yDesc;
+        if (eff[1] < 0) yDesc = "Вниз на " + Math.abs(eff[1]) + " бл.";
+        else if (eff[1] > 0) yDesc = "Вверх на " + eff[1] + " бл.";
+        else yDesc = "0 (на уровне поверхности)";
+
+        String title = ar != null ? "Арена: " + ar.name + " (" + ar.id + ")" : "Схематика: " + schemFile;
+        sender.sendMessage(Messages.color("&6=== Преднастройка сдвига спавна: &f" + title + " &6==="));
+        if (ar != null && ar.schematic != null) {
+            sender.sendMessage(Messages.color("&7Файл схематики: &f" + ar.schematic));
+        }
+        sender.sendMessage(Messages.color("&7Текущий сдвиг спавна: &eX: " + (eff[0] >= 0 ? "+" : "") + eff[0] + ", Y: " + (eff[1] >= 0 ? "+" : "") + eff[1] + " &7(" + yDesc + ")&e, Z: " + (eff[2] >= 0 ? "+" : "") + eff[2]));
+        if (ar != null && ar.offsetX == 0 && ar.offsetY == 0 && ar.offsetZ == 0 && (eff[0] != 0 || eff[1] != 0 || eff[2] != 0)) {
+            sender.sendMessage(Messages.color("&8(унаследовано из настроек файла схематики)"));
+        }
+        sender.sendMessage(Messages.color("&7Команды:"));
+        String cmdTarget = ar != null ? ar.id : schemFile;
+        sender.sendMessage(Messages.color("  &f/jd offset " + cmdTarget + " вниз <блоки> &7— сдвинуть спавн вниз"));
+        sender.sendMessage(Messages.color("  &f/jd offset " + cmdTarget + " вверх <блоки> &7— сдвинуть спавн вверх"));
+        sender.sendMessage(Messages.color("  &f/jd offset " + cmdTarget + " <dx> <dy> <dz> &7— точный вектор"));
+        sender.sendMessage(Messages.color("  &f/jd offset " + cmdTarget + " reset &7— сбросить в 0"));
+        if (sender instanceof Player) {
+            sender.sendMessage(Messages.color("  &e/jd offset " + cmdTarget + " menu &7— открыть GUI настройки"));
+        }
+    }
+
     private void point(CommandSender sender, String[] a) {
         String op = this.arg(a, 1);
         String id = this.arg(a, 2);
@@ -1565,7 +1812,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                     "build", "protection", "create", "edit", "delete", "rename", "theme", "enable",
                     "schematic", "template", "pos1", "pos2", "chest", "exit", "point", "site",
                     "wave", "combat", "timer", "case", "config", "validate", "audit", "review",
-                    "type", "placement", "worlds", "launch", "voucher", "schedule", "move", "shift"
+                    "type", "placement", "worlds", "launch", "voucher", "schedule", "move", "shift", "offset", "schemoffset"
                 ));
             }
         } else if (admin) {
@@ -1587,6 +1834,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                         break;
                     }
                     case "stop": {
+                        options.add("all");
                         options.addAll(this.e.sessions.keySet());
                         for (Model.Session sess : this.e.sessions.values()) {
                             options.add(sess.arenaId);
@@ -1610,11 +1858,14 @@ public final class Commands implements CommandExecutor, TabCompleter {
                     }
                     case "spawn":
                     case "test": {
+                        options.add("all");
                         options.add("self");
                         options.addAll(List.of("1", "2", "3", "5"));
                         options.addAll(this.e.c.arenas.keySet());
                         break;
                     }
+                    case "offset":
+                    case "schemoffset":
                     case "move":
                     case "shift":
                     case "edit":
@@ -1640,6 +1891,11 @@ public final class Commands implements CommandExecutor, TabCompleter {
                                 options.add(Messages.stripColor(ar.name).trim().replace(' ', '_'));
                             }
                         }
+                        if (sub.equals("offset") || sub.equals("schemoffset")) {
+                            try {
+                                options.addAll(this.e.structures.schematics());
+                            } catch (Exception ignored) {}
+                        }
                         break;
                     }
                     case "point": {
@@ -1655,7 +1911,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                         break;
                     }
                     case "schematic": {
-                        options.addAll(List.of("list", "use", "paste", "fit", "clear", "air", "move", "shift"));
+                        options.addAll(List.of("list", "use", "paste", "fit", "clear", "air", "move", "shift", "offset"));
                         break;
                     }
                     case "wave": {
@@ -1751,6 +2007,8 @@ public final class Commands implements CommandExecutor, TabCompleter {
                         options.addAll(List.of("on", "off", "true", "false"));
                         break;
                     }
+                    case "offset":
+                    case "schemoffset":
                     case "move":
                     case "shift": {
                         options.addAll(List.of(
@@ -1759,23 +2017,39 @@ public final class Commands implements CommandExecutor, TabCompleter {
                             "up", "down", "left", "right", "forward", "back",
                             "north", "south", "east", "west"
                         ));
+                        if (sub.equals("offset") || sub.equals("schemoffset")) {
+                            options.addAll(List.of("reset", "menu", "info", "0"));
+                        }
                         break;
                     }
                     case "schematic": {
-                        if (List.of("use", "paste", "fit", "clear", "air", "move", "shift").contains(a[1])) {
+                        if (List.of("use", "paste", "fit", "clear", "air", "move", "shift", "offset").contains(a[1])) {
                             options.addAll(this.e.c.arenas.keySet());
                             for (Model.Arena ar : this.e.c.arenas.values()) {
                                 if (ar.name != null && !ar.name.equalsIgnoreCase(ar.id)) {
                                     options.add(Messages.stripColor(ar.name).trim().replace(' ', '_'));
                                 }
                             }
+                            if (a[1].equalsIgnoreCase("offset") || a[1].equalsIgnoreCase("use")) {
+                                try {
+                                    options.addAll(this.e.structures.schematics());
+                                } catch (Exception ignored) {}
+                            }
                         }
                         break;
                     }
                 }
             } else if (a.length == 4) {
-                if (sub.equals("move") || sub.equals("shift")) {
-                    options.addAll(List.of("1", "2", "3", "5", "10"));
+                if (sub.equals("move") || sub.equals("shift") || sub.equals("offset") || sub.equals("schemoffset")) {
+                    options.addAll(List.of("1", "2", "3", "5", "10", "0"));
+                } else if (sub.equals("schematic") && (a[1].equalsIgnoreCase("offset") || a[1].equalsIgnoreCase("schemoffset"))) {
+                    options.addAll(List.of(
+                        "вверх", "вниз", "влево", "вправо", "вперед", "назад",
+                        "север", "юг", "восток", "запад",
+                        "up", "down", "left", "right", "forward", "back",
+                        "north", "south", "east", "west",
+                        "reset", "menu", "info", "0"
+                    ));
                 } else if (sub.equals("schematic") && (a[1].equalsIgnoreCase("move") || a[1].equalsIgnoreCase("shift"))) {
                     options.addAll(List.of(
                         "вверх", "вниз", "влево", "вправо", "вперед", "назад",
@@ -1813,8 +2087,8 @@ public final class Commands implements CommandExecutor, TabCompleter {
                     } catch (Exception ignored) {}
                 }
             } else if (a.length == 5) {
-                if (sub.equals("schematic") && (a[1].equalsIgnoreCase("move") || a[1].equalsIgnoreCase("shift"))) {
-                    options.addAll(List.of("1", "2", "3", "5", "10"));
+                if (sub.equals("schematic") && (a[1].equalsIgnoreCase("move") || a[1].equalsIgnoreCase("shift") || a[1].equalsIgnoreCase("offset") || a[1].equalsIgnoreCase("schemoffset"))) {
+                    options.addAll(List.of("1", "2", "3", "5", "10", "0"));
                 } else if (sub.equals("autospawn") && a[1].equalsIgnoreCase("schedule") && a[2].equalsIgnoreCase("add")) {
                     options.add("any");
                     options.addAll(this.e.c.arenas.keySet());

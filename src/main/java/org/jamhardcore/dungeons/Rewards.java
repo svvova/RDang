@@ -80,11 +80,25 @@ public final class Rewards {
         r.owner = owner.toString();
         r.kind = s.kind;
         r.coins = this.random.nextInt(pool.minCoins, pool.maxCoins + 1);
-        if (s.kind == Model.Kind.PVP) {
+        if (!pool.cases.isEmpty() && (s.kind == Model.Kind.PVP || this.random.nextDouble() * 100.0 < pool.caseChance)) {
             r.caseRole = Rules.pick(pool.cases, 1, Model.CaseChoice::weight, this.random).getFirst().id();
             r.caseId = s.caseMappings.get(r.caseRole);
+            r.caseState = Model.Delivery.PENDING;
         } else {
             r.caseState = Model.Delivery.DONE;
+        }
+        if (pool.pets != null && pool.pets.enabled) {
+            String tier = this.rollPetEgg(pool.pets);
+            if (tier != null) {
+                r.petEgg = tier;
+                r.petEggState = Model.Delivery.PENDING;
+            } else {
+                r.petEgg = null;
+                r.petEggState = Model.Delivery.DONE;
+            }
+        } else {
+            r.petEgg = null;
+            r.petEggState = Model.Delivery.DONE;
         }
         for (Model.ItemChoice item : Rules.pick(pool.items, pool.picks, v -> v.weight, this.random)) {
             int amount = item.amounts.isEmpty() ? this.random.nextInt(item.min, item.max + 1) : Rules.pick(item.amounts, 1, Model.Amount::weight, this.random).getFirst().amount();
@@ -142,6 +156,7 @@ public final class Rewards {
     public void deliver(Player p, Model.Reward r) {
         this.take(p, r, "coins", Integer.MAX_VALUE);
         this.take(p, r, "case", Integer.MAX_VALUE);
+        this.take(p, r, "pet_egg", Integer.MAX_VALUE);
         for (Model.GiftItem item : r.items) {
             this.take(p, r, item.id, Integer.MAX_VALUE);
         }
@@ -176,6 +191,31 @@ public final class Rewards {
                 r.caseState = Model.Delivery.REVIEW;
                 this.db.reward(r);
                 this.db.audit("SYSTEM", "REWARD_REVIEW", r.id + " case: " + ex.getClass().getSimpleName());
+            }
+            return;
+        }
+        if (part.equals("pet_egg") || part.equals("egg")) {
+            if (r.petEgg == null || r.petEggState != Model.Delivery.PENDING) {
+                return;
+            }
+            r.petEggState = Model.Delivery.IN_FLIGHT;
+            this.db.reward(r);
+            try {
+                String cmd = this.petCommand(r, p.getName());
+                boolean ok = Bukkit.dispatchCommand((CommandSender)Bukkit.getConsoleSender(), cmd);
+                if (!ok) {
+                    throw new IllegalStateException("Команда выдачи яйца питомца не принята: " + cmd);
+                }
+                p.saveData();
+                r.petEggState = Model.Delivery.DONE;
+                this.db.reward(r);
+                String displayTier = "rare".equalsIgnoreCase(r.petEgg) ? "Редкое" : ("epic".equalsIgnoreCase(r.petEgg) ? "Эпическое" : "Легендарное");
+                this.msg.send((CommandSender)p, "pet-egg-success", Map.of("tier", displayTier));
+            }
+            catch (Exception ex) {
+                r.petEggState = Model.Delivery.REVIEW;
+                this.db.reward(r);
+                this.db.audit("SYSTEM", "REWARD_REVIEW", r.id + " pet_egg: " + ex.getClass().getSimpleName());
             }
             return;
         }
@@ -344,6 +384,9 @@ public final class Rewards {
         } else if (part.equals("case")) {
             Rewards.requireReview(r.caseState);
             r.caseState = delivered ? Model.Delivery.DONE : Model.Delivery.PENDING;
+        } else if (part.equals("pet_egg") || part.equals("egg")) {
+            Rewards.requireReview(r.petEggState);
+            r.petEggState = delivered ? Model.Delivery.DONE : Model.Delivery.PENDING;
         } else {
             int i = Integer.parseInt(part) - 1;
             if (i < 0 || i >= r.items.size()) {
@@ -365,6 +408,67 @@ public final class Rewards {
         if (d != Model.Delivery.REVIEW) {
             throw new IllegalArgumentException("\u0421\u0432\u0435\u0440\u044f\u0442\u044c \u043c\u043e\u0436\u043d\u043e \u0442\u043e\u043b\u044c\u043a\u043e \u0441\u0442\u0430\u0442\u0443\u0441 REVIEW");
         }
+    }
+
+    public String rollPetEgg(Model.PetSpec pets) {
+        if (pets == null || !pets.enabled) {
+            return null;
+        }
+        // Каскадный ролл: Legendary (10%) -> Epic (25%) -> Rare (75%)
+        if (this.random.nextDouble() * 100.0 < pets.legendaryChance) {
+            return "legendary";
+        }
+        if (this.random.nextDouble() * 100.0 < pets.epicChance) {
+            return "epic";
+        }
+        if (this.random.nextDouble() * 100.0 < pets.rareChance) {
+            return "rare";
+        }
+        return null;
+    }
+
+    public String petCommand(Model.Reward r, String player) {
+        String template = "petadmin giveegg {player} {tier}";
+        if (r != null && r.kind != null) {
+            Model.Pool pool = r.kind == Model.Kind.PVP ? this.c.pvp : this.c.pve;
+            if (pool != null && pool.pets != null && pool.pets.command != null && !pool.pets.command.isBlank()) {
+                template = pool.pets.command;
+            }
+        }
+        if (template.startsWith("/")) {
+            template = template.substring(1);
+        }
+        String tier = (r != null && r.petEgg != null) ? r.petEgg.toLowerCase(java.util.Locale.ROOT) : "";
+        return template.replace("{player}", player).replace("{nickname}", player).replace("{user}", player).replace("{tier}", tier);
+    }
+
+    public ItemStack petEggItem(String tier) {
+        ItemStack egg = new ItemStack(Material.DRAGON_EGG);
+        ItemMeta meta = egg.getItemMeta();
+        String tierName;
+        String color;
+        switch (tier != null ? tier.toLowerCase(java.util.Locale.ROOT) : "") {
+            case "legendary":
+                tierName = "Легендарное";
+                color = "&6&l";
+                break;
+            case "epic":
+                tierName = "Эпическое";
+                color = "&d&l";
+                break;
+            default:
+                tierName = "Редкое";
+                color = "&b&l";
+                break;
+        }
+        meta.displayName(Messages.color(color + "Яйцо питомца: " + tierName));
+        meta.lore(List.of(
+            Messages.color("&7Редкость: " + color + tierName),
+            Messages.color("&7Нажми, чтобы получить яйцо питомца!"),
+            Messages.color("&8Команда: /petadmin giveegg {player} " + (tier != null ? tier.toLowerCase(java.util.Locale.ROOT) : ""))
+        ));
+        egg.setItemMeta(meta);
+        return egg;
     }
 }
 

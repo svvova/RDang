@@ -265,6 +265,10 @@ implements AutoCloseable {
                 r.caseState = Model.Delivery.REVIEW;
                 changed = true;
             }
+            if (r.petEggState == Model.Delivery.IN_FLIGHT) {
+                r.petEggState = Model.Delivery.REVIEW;
+                changed = true;
+            }
             for (Model.GiftItem i : r.items) {
                 if (i.state != Model.Delivery.IN_FLIGHT) continue;
                 i.state = Model.Delivery.REVIEW;
