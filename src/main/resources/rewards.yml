@@ -5,12 +5,12 @@ pve:
     max: 500
   item-picks: 4
   # Яйца питомцев за победу в PvE (выдаются командой /petadmin giveegg <ник> <epic/legendary/rare>)
-  # Каскадный шанс: сначала проверяется Legendary (10%), затем Epic (25%), затем Rare (75%)
+  # Каскадный шанс: сначала проверяется Legendary (10%), затем Epic (25%), затем Rare (65%)
   pets:
     enabled: true
     legendary-chance: 10.0
     epic-chance: 25.0
-    rare-chance: 75.0
+    rare-chance: 65.0
     command: "petadmin giveegg {player} {tier}"
   items:
   - id: bread
@@ -93,12 +93,12 @@ pvp:
     max: 10000
   item-picks: 3
   # Яйца питомцев за победу в PvP (выдаются командой /petadmin giveegg <ник> <epic/legendary/rare>)
-  # Каскадный шанс: сначала проверяется Legendary (10%), затем Epic (25%), затем Rare (75%)
+  # Каскадный шанс: сначала проверяется Legendary (10%), затем Epic (25%), затем Rare (65%)
   pets:
     enabled: true
     legendary-chance: 10.0
     epic-chance: 25.0
-    rare-chance: 75.0
+    rare-chance: 65.0
     command: "petadmin giveegg {player} {tier}"
   items:
   # Обычные полезные предметы: еда, блоки дерева 16 шт, стрелы, железо, золото и расходники

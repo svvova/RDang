@@ -414,7 +414,7 @@ public final class Rewards {
         if (pets == null || !pets.enabled) {
             return null;
         }
-        // Каскадный ролл: Legendary (10%) -> Epic (25%) -> Rare (75%)
+        // Каскадный ролл: Legendary (10%) -> Epic (25%) -> Rare (65%)
         if (this.random.nextDouble() * 100.0 < pets.legendaryChance) {
             return "legendary";
         }

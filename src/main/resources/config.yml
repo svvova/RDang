@@ -1,5 +1,5 @@
 schema: 3
-revision: 6
+revision: 7
 timezone: Europe/Moscow
 timers:
   pve-seconds: 900

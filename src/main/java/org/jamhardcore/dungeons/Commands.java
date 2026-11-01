@@ -5,6 +5,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -390,7 +391,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                                     this.e.msg.error(sender, "Ошибка сохранения шаблона: " + cause.getMessage());
                                 } else {
                                     try {
-                                        this.e.regions.sync(saved);
+                                        this.e.regions.deleteDefinition(saved);
                                     } catch (Exception ignored) {}
                                     sender.sendMessage(Messages.color("&aШаблон сохранён через FAWE: templates/" + id + ".schem. Исходная площадь постройки очищена из мира. Сундук и точки мобов привязаны к шаблону. Размещение: " + saved.placement.label + ". /jd spawn " + id));
                                 }
@@ -584,7 +585,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                 throw new IllegalArgumentException("Все доступные арены (" + targets.size() + " шт.) уже заспавнены или размещаются!");
             }
             int limit = this.e.c.limit("placed-events");
-            int availableSlots = limit - this.e.sessions.size();
+            int availableSlots = limit - this.e.sessions.size() - this.e.placement.pendingCount();
             if (availableSlots <= 0) {
                 throw new IllegalArgumentException("Достигнут лимит активных данжей: " + limit + " (limits.placed-events)");
             }
@@ -608,7 +609,7 @@ public final class Commands implements CommandExecutor, TabCompleter {
                         }
                     });
                 }, delayTicks);
-                delayTicks += 10L;
+                delayTicks += 20L;
             }
             return;
         }
@@ -624,17 +625,41 @@ public final class Commands implements CommandExecutor, TabCompleter {
                 if (available.isEmpty()) {
                     throw new IllegalArgumentException("Нет включенных арен со схемами");
                 }
-                sender.sendMessage(Messages.color("&eЗапуск генерации &6" + count + " &eданжей..."));
-                Random rnd = new Random();
-                for (int i = 0; i < count; i++) {
-                    Model.Arena ar = available.get(rnd.nextInt(available.size()));
-                    this.e.placement.spawn(ar.id, "random", isTest, sender.getName()).whenComplete((session, error) -> {
-                        if (error != null) {
-                            this.e.msg.error(sender, error.getMessage());
-                        } else {
-                            sender.sendMessage(Messages.color("&aДанж " + session.arenaId + " размещен: " + session.arena.box().world() + " " + (int)session.arena.chest.x() + " " + (int)session.arena.chest.y() + " " + (int)session.arena.chest.z()));
-                        }
-                    });
+                List<Model.Arena> idle = available.stream()
+                        .filter(ar -> !this.e.sessions.containsKey(ar.id) && !this.e.placement.isPending(ar.id))
+                        .collect(java.util.stream.Collectors.toList());
+                if (idle.isEmpty()) {
+                    throw new IllegalArgumentException("Все включенные арены (" + available.size() + " шт.) уже активны или размещаются!");
+                }
+                int limit = this.e.c.limit("placed-events");
+                int availableSlots = limit - this.e.sessions.size() - this.e.placement.pendingCount();
+                if (availableSlots <= 0) {
+                    throw new IllegalArgumentException("Достигнут лимит активных данжей: " + limit + " (limits.placed-events)");
+                }
+                Collections.shuffle(idle);
+                int finalCount = Math.min(count, Math.min(availableSlots, idle.size()));
+                List<Model.Arena> toSpawn = idle.subList(0, finalCount);
+
+                sender.sendMessage(Messages.color("&e[JamDungeons] Запуск генерации &6" + toSpawn.size() + " &eданжей в разных точках мира..."));
+                if (count > toSpawn.size()) {
+                    sender.sendMessage(Messages.color("&7(Будет заспавнено " + toSpawn.size() + " из " + count + " из-за доступных свободных арен и лимита " + limit + ")"));
+                }
+                long delayTicks = 0L;
+                for (Model.Arena ar : toSpawn) {
+                    final Model.Arena currentArena = ar;
+                    Bukkit.getScheduler().runTaskLater(this.e.p, () -> {
+                        if (this.e.sessions.containsKey(currentArena.id) || this.e.placement.isPending(currentArena.id)) return;
+                        sender.sendMessage(Messages.color("&7Поиск точки и размещение данжа &a" + currentArena.id + "&7..."));
+                        this.e.placement.spawn(currentArena.id, "random", isTest, sender.getName()).whenComplete((session, error) -> {
+                            if (error != null) {
+                                Throwable cause = error.getCause() != null ? error.getCause() : error;
+                                this.e.msg.error(sender, "Ошибка спавна " + currentArena.id + ": " + cause.getMessage());
+                            } else {
+                                sender.sendMessage(Messages.color("&a✔ Данж &f" + session.arenaId + " &aуспешно размещён! Координаты: &e" + session.arena.box().world() + " [" + (int)session.arena.chest.x() + ", " + (int)session.arena.chest.y() + ", " + (int)session.arena.chest.z() + "]"));
+                            }
+                        });
+                    }, delayTicks);
+                    delayTicks += 20L;
                 }
                 return;
             } catch (NumberFormatException ignored) {

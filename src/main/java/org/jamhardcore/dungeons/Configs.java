@@ -423,7 +423,7 @@ public final class Configs {
             p.pets.enabled = petSec.getBoolean("enabled", true);
             p.pets.legendaryChance = petSec.getDouble("legendary-chance", 10.0);
             p.pets.epicChance = petSec.getDouble("epic-chance", 25.0);
-            p.pets.rareChance = petSec.getDouble("rare-chance", 75.0);
+            p.pets.rareChance = petSec.getDouble("rare-chance", 65.0);
             p.pets.command = petSec.getString("command", "petadmin giveegg {player} {tier}");
         }
         for (Model.ItemChoice item : p.items) {

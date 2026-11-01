@@ -19,6 +19,7 @@ import com.sk89q.worldedit.math.BlockVector3;
 import com.sk89q.worldedit.regions.CuboidRegion;
 import com.sk89q.worldedit.regions.Region;
 import com.sk89q.worldedit.session.ClipboardHolder;
+import com.sk89q.worldedit.util.SideEffect;
 import com.sk89q.worldedit.util.SideEffectSet;
 import com.sk89q.worldedit.world.World;
 import java.io.ByteArrayInputStream;
@@ -96,8 +97,14 @@ final class WorldEditStructures implements StructureBackend {
             setFastMode.invoke(session, true);
         } catch (Throwable ignored) {}
         try {
-            session.setSideEffectApplier(SideEffectSet.none());
-        } catch (Throwable ignored) {}
+            session.setSideEffectApplier(SideEffectSet.none()
+                .with(SideEffect.NETWORK, SideEffect.State.ON)
+                .with(SideEffect.UPDATE, SideEffect.State.ON));
+        } catch (Throwable ignored) {
+            try {
+                session.setSideEffectApplier(SideEffectSet.none());
+            } catch (Throwable ignored2) {}
+        }
         try {
             Method setWatchdog = session.getClass().getMethod("setWatchdog", boolean.class);
             setWatchdog.invoke(session, false);
@@ -277,13 +284,7 @@ final class WorldEditStructures implements StructureBackend {
         BlockVector3 max = BlockVector3.at(box.x2(), box.y2(), box.z2());
         CuboidRegion region = new CuboidRegion(weWorld, min, max);
         try (EditSession editSession = this.createEditSession(weWorld)) {
-            try {
-                // Оптимизация: заменяем только не-воздушные блоки, пропуская уже существующий воздух!
-                ExistingBlockMask mask = new ExistingBlockMask(editSession);
-                editSession.replaceBlocks((Region)region, mask, com.sk89q.worldedit.world.block.BlockTypes.AIR.getDefaultState());
-            } catch (Throwable fallback) {
-                editSession.setBlocks((Region)region, com.sk89q.worldedit.world.block.BlockTypes.AIR.getDefaultState());
-            }
+            editSession.setBlocks((Region)region, com.sk89q.worldedit.world.block.BlockTypes.AIR.getDefaultState());
             this.flushEditSession(editSession);
         }
     }

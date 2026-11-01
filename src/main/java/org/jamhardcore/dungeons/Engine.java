@@ -339,6 +339,10 @@ public final class Engine {
         if (w == null) {
             return Bukkit.getWorlds().isEmpty() ? null : Bukkit.getWorlds().get(0).getSpawnLocation();
         }
+        Model.Point p = PlacementService.exitNear(box);
+        if (p != null && p.location() != null) {
+            return p.location();
+        }
         int x = box.x1() - 3;
         int z = box.z1() - 3;
         int y = PlacementService.getGroundHeight(w, x, z);

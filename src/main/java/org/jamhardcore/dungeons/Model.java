@@ -41,7 +41,7 @@ public final class Model {
         public boolean enabled = true;
         public double legendaryChance = 10.0;
         public double epicChance = 25.0;
-        public double rareChance = 75.0;
+        public double rareChance = 65.0;
         public String command = "petadmin giveegg {player} {tier}";
     }
 

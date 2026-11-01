@@ -16,9 +16,12 @@ import org.bukkit.Chunk;
 import org.bukkit.World;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
 import org.bukkit.loot.Lootable;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.BoundingBox;
 
 public final class Templates {
     private final JavaPlugin p;
@@ -228,6 +231,37 @@ public final class Templates {
                 });
     }
 
+    public void cleanUpBoxEntitiesAndRefresh(Model.Box box) {
+        if (box == null) return;
+        World bw = Bukkit.getWorld(box.world());
+        if (bw == null) return;
+        try {
+            BoundingBox bb = new BoundingBox(
+                Math.min(box.x1(), box.x2()),
+                Math.min(box.y1(), box.y2()),
+                Math.min(box.z1(), box.z2()),
+                Math.max(box.x1(), box.x2()) + 1,
+                Math.max(box.y1(), box.y2()) + 1,
+                Math.max(box.z1(), box.z2()) + 1
+            );
+            bw.getNearbyEntities(bb).stream()
+                .filter(entity -> !(entity instanceof Player))
+                .forEach(Entity::remove);
+
+            int minCx = Math.min(box.x1(), box.x2()) >> 4;
+            int maxCx = Math.max(box.x1(), box.x2()) >> 4;
+            int minCz = Math.min(box.z1(), box.z2()) >> 4;
+            int maxCz = Math.max(box.z1(), box.z2()) >> 4;
+            for (int cx = minCx; cx <= maxCx; cx++) {
+                for (int cz = minCz; cz <= maxCz; cz++) {
+                    bw.refreshChunk(cx, cz);
+                }
+            }
+        } catch (Throwable t) {
+            this.p.getLogger().warning("Ошибка при очистке сущностей/обновлении чанков в области: " + t.getMessage());
+        }
+    }
+
     public void capture(Model.Arena a) throws Exception {
         this.check(a.box());
         this.blocks(io -> io.capture(a.box(), this.root.resolve("templates/" + a.id + ".schem")));
@@ -248,6 +282,7 @@ public final class Templates {
                     Bukkit.getScheduler().runTask(this.p, () -> {
                         this.tickets(a.box(), false);
                         if (err == null) {
+                            this.cleanUpBoxEntitiesAndRefresh(a.box());
                             a.template = true;
                             a.schematic = null;
                             this.invalidateCache(a.id);
@@ -512,6 +547,7 @@ public final class Templates {
     public void clearArea(Model.Box box) throws Exception {
         this.check(box);
         this.backend().clear(box);
+        this.cleanUpBoxEntitiesAndRefresh(box);
     }
 
     public CompletableFuture<Void> clearAreaAsync(Model.Box box) {
@@ -521,6 +557,9 @@ public final class Templates {
                 .whenComplete((v, err) -> {
                     Bukkit.getScheduler().runTask(this.p, () -> {
                         this.tickets(box, false);
+                        if (err == null) {
+                            this.cleanUpBoxEntitiesAndRefresh(box);
+                        }
                     });
                 });
     }

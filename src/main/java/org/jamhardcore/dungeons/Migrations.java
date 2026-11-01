@@ -53,7 +53,8 @@ final class Migrations {
                 main.set("revision", (Object)5);
                 repaired = true;
             }
-            return repaired |= Migrations.upgrade116(main, previousRevision);
+            repaired |= Migrations.upgrade116(main, previousRevision);
+            return repaired |= Migrations.upgrade117(files, previousRevision);
         }
         if (previousSchema < 2) {
             YamlConfiguration yamlConfiguration;
@@ -192,6 +193,27 @@ final class Migrations {
         Migrations.upgrade114(files, previousRevision);
         main.set("revision", (Object)5);
         Migrations.upgrade116(main, previousRevision);
+        Migrations.upgrade117(files, previousRevision);
+        return true;
+    }
+
+    private static boolean upgrade117(Map<String, YamlConfiguration> files, int previousRevision) {
+        if (previousRevision >= 7) {
+            return false;
+        }
+        YamlConfiguration main = files.get("config");
+        YamlConfiguration messages = files.get("messages");
+        if (messages != null) {
+            String pve = messages.getString("pve-appearance");
+            if (pve != null && pve.contains("Координаты:")) {
+                messages.set("pve-appearance", pve.replaceAll("\\s*(&[0-9a-fk-orx])?Координаты:.*", ""));
+            }
+            String pvp = messages.getString("pvp-appearance");
+            if (pvp != null && pvp.contains("Координаты:")) {
+                messages.set("pvp-appearance", pvp.replaceAll("\\s*(&[0-9a-fk-orx])?Координаты:.*", ""));
+            }
+        }
+        main.set("revision", (Object)7);
         return true;
     }
 
